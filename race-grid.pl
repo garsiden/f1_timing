@@ -6,11 +6,16 @@ use warnings;
 # parse race grid from text file
 
 my $data_dir  = 'data/src/';
-my $grid_file = 'aus-race-grid.txt';
+my $grid_txt  = 'aus-race-grid.txt';
 my $path      = $data_dir . $grid_file;
+my $grid_pdf  = "$ENV{HOME}/Documents/F1/aus-race-grid.pdf";
+use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
 
-open GRID, "<", $path
-  or die "Unable to open file $path: $!\n";
+#open GRID, "<", $path
+#  or die "Unable to open file $path: $!\n";
+
+open GRID, "PDFTOTEXT -layout $grid_pdf - |"
+  or die "unable to open PDFTOTEXT: $!";
 
 my $name_re    = q#[A-Z]\. [A-Z '-]+#;
 my $time_re    = '\d:\d\d\.\d\d\d';
@@ -34,5 +39,6 @@ while (<GRID>) {
     }
 }
 
-close GRID;
+close GRID
+    or die "bad PDFTOTEXT: $! $?";
 
