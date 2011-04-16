@@ -23,6 +23,10 @@ $driver_re     = $name_re;
 $lap_re        = '\d{1,2}';
 $timeofday_re  = '\d\d:\d\d:\d\d';
 
+#$pwd = 'maggio26';
+#$pwd =~ tr/a-mA-Mn-zN-Z/n-zN-Za-mA-M/;
+#print $pwd, "/n/n";
+
 # map PDFs to sub-routines
 %pdf = (
 
@@ -37,45 +41,61 @@ for my $key ( keys %pdf ) {
 
     # use to arg open method to get shell redirection to stdout
     open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
-        or die "unable to open PDFTOTEXT: $!";
+      or die "unable to open PDFTOTEXT: $!";
     $pdf{$key}($text);
 
     close $text
-        or die "bad PDFTOTEXT: $! $?";
+      or die "bad PDFTOTEXT: $! $?";
 }
 
 sub race_lap_analysis
 {
     my $text = shift;
 
-    my $header_re = qr/($pos_re)\s+($driver_re)/;
-    my $laptest_re    = qr/($lap_re)\sP?\s+($timeofday_re|$laptime_re)\s?/;
-    my $laps_re   = qr/$lap_re$lap_re$lap_re/;
-    my $test_re    = qr/($laptime_re|$timeofday_re)/;
-    my($no, $time);
+    my $header_re  = qr/($pos_re)\s+(?:$driver_re)/;
+    my $laptime_re = qr/($lap_re)\sP?\s+($timeofday_re|$laptime_re)\s?/;
+    my ( @cols, $width, $prev, $len, $i );
+    my %laptime;
 
-    my ($c1, $c2, $c3, $c4, $c5, $c6);
-    HEADER: while (<$text>) {
-        if ( my %driver = /$header_re/go ) {
-            for my $k (sort keys %driver) {
-                $driver{$k} =~ s/\s+$//;
-                print "$k\t$driver{$k}\n";
+  HEADER: while (<$text>) {
+        if ( my @pos = /$header_re/go ) {
+            # skip an empty line
+            readline $text;
+            my $line = <$text>;
+            # split page into two time columns per driver
+            @cols = ();
+            while ( $line =~ m/(LAP\s+TIME\s+){2}/g ) {
+                push @cols, pos $line;
             }
-            for ($i = 0; $i < 4; $i++) { readline $text }
+            # skip 2 empty lines
+            for ( $i = 0; $i < 2; $i++ ) { readline $text }
+
             while (<$text>) {
-                if ( length == 1) { next HEADER }
-                while (/(\d{1,2})\s+(\d\d:\d\d:\d\d|\d:\d\d\.\d\d\d)/g) {
-                    $no = $1;
-                    $time = $2;
-                    #my $n = scalar @lt;
-                    #print Dumper @lt;
-                    printf "%d\t%s\t%s\t",  pos, $no, $time;
+                $len = length;
+                if ( $len == 1 ) { next HEADER }
+                $prev = $i = 0;
+                for my $c (@cols) {
+                    $width = $c - $prev - 1;
+                    if ( $prev + $width <= $len ) {
+                        my %temp =
+                          ( substr( $_, $prev, $width ) =~ /$laptime_re/go );
+                        if (%temp) {
+                            for my $k ( keys %temp ) {
+                                $laptime{ $pos[$i] }{ sprintf "%02d", $k } =
+                                  $temp{$k};
+                            }
+                        }
+                        $prev = $c;
+                        $i++;
+                    }
                 }
-                print "\n========\n";
             }
         }
-    }
 
+    }
+    foreach my $k ( sort keys %{ $laptime{25} } ) {
+        print "$k\t$laptime{25}{$k}\n";
+    }
 }
 
 sub race_maximum_speeds
@@ -85,7 +105,7 @@ sub race_maximum_speeds
     my $regex = qr/($no_re) ($name_re)($maxspeed_re)/;
 
     while (<$text>) {
-        if ( my @sector  = /$regex/go ) {
+        if ( my @sector = /$regex/go ) {
             foreach (@sector) { s/\s+$// }
             print "$sector[0]\t$sector[1]\t$sector[2]\t";
             print "$sector[3]\t$sector[4]\t$sector[5]\t";
@@ -93,6 +113,7 @@ sub race_maximum_speeds
         }
     }
 }
+
 sub race_best_sector_times
 {
     my $text = shift;
@@ -100,7 +121,7 @@ sub race_best_sector_times
     my $regex = qr/($no_re) ($name_re)($sectortime_re)/;
 
     while (<$text>) {
-        if ( my @sector  = /$regex/go ) {
+        if ( my @sector = /$regex/go ) {
             foreach (@sector) { s/\s+$// }
             print "$sector[0]\t$sector[1]\t$sector[2]\t";
             print "$sector[3]\t$sector[4]\t$sector[5]\t";
