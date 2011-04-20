@@ -22,6 +22,10 @@ $no_re         = $pos_re;
 $driver_re     = $name_re;
 $lap_re        = '\d{1,2}';
 $timeofday_re  = '\d\d:\d\d:\d\d';
+$nat_re        = '[A-Z]{3}';
+$on_re         = $lap_re;
+$gap_re        = '\d{1,2}\.\d\d\d';
+$kph_re        = '\d\d\d\.\d\d\d';
 
 #$pwd = 'maggio26';
 #$pwd =~ tr/a-mA-Mn-zN-Z/n-zN-Za-mA-M/;
@@ -33,7 +37,8 @@ $timeofday_re  = '\d\d:\d\d:\d\d';
     #'aus-race-grid' => \&provisional_starting_grid,
     #'aus-race-sectors' => \&race_best_sector_times,
     #'aus-race-speeds' => \&race_maximum_speeds,
-    'aus-race-analysis' => \&race_lap_analysis,
+    #'aus-race-analysis' => \&race_lap_analysis,
+    'aus-race-laps' => \&race_fastest_laps,
 );
 
 for my $key ( keys %pdf ) {
@@ -41,11 +46,53 @@ for my $key ( keys %pdf ) {
 
     # use to arg open method to get shell redirection to stdout
     open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
-      or die "unable to open PDFTOTEXT: $!";
+        or die "unable to open PDFTOTEXT: $!";
     $pdf{$key}($text);
 
     close $text
-      or die "bad PDFTOTEXT: $! $?";
+        or die "bad PDFTOTEXT: $! $?";
+}
+
+sub race_fastest_laps
+{
+    my $text = shift;
+
+    my ($pos, $no, $nat, $entrant, $laptime, $on, $gap, $kph, $timeofday);
+    my $regex = qr/($pos_re)\s+($no_re)\s+($driver_re)($nat_re)($entrant_re)/;
+    $regex .= qr/($laptime_re)\s+($on_re)\s+($gap_re)*\s+($kph_re)\s+($timeofday_re)/;
+    my @laps;
+
+    while (<$text>) {
+        next unless /$regex/o ;
+        $pos =$1;
+        $no = $2;
+        $driver = $3;
+        $nat = $4;
+        $entrant = $5;
+        $laptime = $6;
+        $on = $7;
+        $gap = $8;
+        $kph = $9;
+        $timeofday = $10;
+        $nat =~ s/\s+$//;
+        $driver =~ s/\s+$//;
+        $entrant =~ s/\s+$//;
+        $entrant =~ s/^\s+//;
+        push @laps, {
+            'pos' , $pos,
+            'no', $no,
+            'driver', $driver,
+            'nat', $nat,
+            'entrant', $entrant,
+            'laptime' ,$laptime,
+            'on', $on,
+            'gap', $gap,
+            'kph', $kph,
+            'timeofday', $timeofday,
+        };
+    }
+
+    print Dumper @laps;
 }
 
 sub race_lap_analysis
@@ -54,47 +101,47 @@ sub race_lap_analysis
 
     my $header_re  = qr/($pos_re)\s+(?:$driver_re)/;
     my $laptime_re = qr/($lap_re)\sP?\s+($timeofday_re|$laptime_re)\s?/;
-    my ( @cols, $width, $prev, $len, $i );
+    my ( @col_pos, $width, $prev_col, $len, $idx, $line );
     my %laptime;
 
-  HEADER: while (<$text>) {
+    HEADER: while (<$text>) {
         if ( my @pos = /$header_re/go ) {
-            # skip an empty line
-            readline $text;
-            my $line = <$text>;
-            # split page into two time columns per driver
-            @cols = ();
-            while ( $line =~ m/(LAP\s+TIME\s+){2}/g ) {
-                push @cols, pos $line;
-            }
-            # skip 2 empty lines
-            for ( $i = 0; $i < 2; $i++ ) { readline $text }
 
-            while (<$text>) {
+            # skip empty lines
+            while ( ( $line = <$text> ) =~ /^\s$/ ) { }
+
+            # split page into two time columns per driver
+            @col_pos = ();
+            while ( $line =~ m/(LAP\s+TIME\s+){2}/g ) {
+                push @col_pos, pos $line;
+            }
+
+            TIMES: while (<$text>) {
+                next TIMES if (/^\n/);
+                next HEADER if (/^\f/);
                 $len = length;
-                if ( $len == 1 ) { next HEADER }
-                $prev = $i = 0;
-                for my $c (@cols) {
-                    $width = $c - $prev - 1;
-                    if ( $prev + $width <= $len ) {
-                        my %temp =
-                          ( substr( $_, $prev, $width ) =~ /$laptime_re/go );
-                        if (%temp) {
+                $prev_col = $idx = 0;
+                for my $col (@col_pos) {
+                    $width = $col - $prev_col - 1;
+                    if ( $prev_col + $width <= $len ) {
+                        if ( my %temp =
+                            substr( $_, $prev_col, $width ) =~ /$laptime_re/go )
+                        {
                             for my $k ( keys %temp ) {
-                                $laptime{ $pos[$i] }{ sprintf "%02d", $k } =
-                                  $temp{$k};
+                                $laptime{ $pos[$idx] }{ sprintf "%02d", $k } =
+                                $temp{$k};
                             }
                         }
-                        $prev = $c;
-                        $i++;
+                        $prev_col = $col;
+                        $idx++;
                     }
                 }
             }
         }
 
     }
-    foreach my $k ( sort keys %{ $laptime{25} } ) {
-        print "$k\t$laptime{25}{$k}\n";
+    foreach my $k ( sort keys %{ $laptime{24} } ) {
+        print "$k\t$laptime{24}{$k}\n";
     }
 }
 
