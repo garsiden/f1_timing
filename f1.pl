@@ -12,20 +12,19 @@ $data_dir = "$ENV{HOME}/Documents/F1/";
 use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
 
 # shared regexs
-$name_re       = q#[A-Z]\. [A-Z '-]+#;
+$name_re       = q#[A-Z]\. [A-Z '-]+?#;
 $laptime_re    = '\d:\d\d\.\d\d\d';
 $sectortime_re = '\d\d\.\d\d\d';
 $maxspeed_re   = '\d\d\d\.\d';
-$entrant_re    = '[\w &]+';
+$entrant_re    = '[A-z &]+?';
 $pos_re        = '\d{1,2}';
 $no_re         = $pos_re;
 $driver_re     = $name_re;
 $lap_re        = '\d{1,2}';
 $timeofday_re  = '\d\d:\d\d:\d\d';
 $nat_re        = '[A-Z]{3}';
-$on_re         = $lap_re;
 $gap_re        = '\d{1,2}\.\d\d\d';
-$kph_re        = '\d\d\d\.\d\d\d';
+$kph_re        = '\d\d\d\.\d{1,3}';
 
 #$pwd = 'maggio26';
 #$pwd =~ tr/a-mA-Mn-zN-Z/n-zN-Za-mA-M/;
@@ -38,7 +37,10 @@ $kph_re        = '\d\d\d\.\d\d\d';
     #'aus-race-sectors' => \&race_best_sector_times,
     #'aus-race-speeds' => \&race_maximum_speeds,
     #'aus-race-analysis' => \&race_lap_analysis,
-    'aus-race-laps' => \&race_fastest_laps,
+    #'aus-race-laps' => \&race_fastest_laps,
+    #'aus-race-summary' => \&race_pit_stop_summary,
+    #'aus-race-trap' => \&race_speed_trap,
+    'aus-qualifying-sectors' => \&qualifying_best_sector_times,
 );
 
 for my $key ( keys %pdf ) {
@@ -46,50 +48,110 @@ for my $key ( keys %pdf ) {
 
     # use to arg open method to get shell redirection to stdout
     open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
-        or die "unable to open PDFTOTEXT: $!";
+      or die "unable to open PDFTOTEXT: $!";
     $pdf{$key}($text);
 
     close $text
-        or die "bad PDFTOTEXT: $! $?";
+      or die "bad PDFTOTEXT: $! $?";
+}
+
+sub race_speed_trap
+{
+    my $text = shift;
+
+    #my $kph_re = '\d\d\d\.\d';
+    my $regex =
+      qr/($pos_re)\s+($no_re)\s+($driver_re)\s+($kph_re)\s+($timeofday_re)/;
+
+    my @speed;
+
+    while (<$text>) {
+        next unless ( my ( $pos, $no, $driver, $kph, $timeofday ) = /$regex/ );
+        push @speed,
+          {
+            'pos',       $pos,    'no',  $no,
+            'driver',    $driver, 'kph', $kph,
+            'timeofday', $timeofday
+          };
+    }
+
+    print Dumper @speed;
+}
+
+sub race_pit_stop_summary
+{
+    my $text = shift;
+
+    my ( $no, $driver, $entrant, $lap, $timeofday, $stop, $duration,
+        $totaltime );
+    my $stop_re      = '\d';
+    my $duration_re  = '(?:\d+:)?\d\d\.\d\d\d';
+    my $totaltime_re = $duration_re;
+    my $regex = qr/($no_re)\s+($driver_re)\s+($entrant_re)\s+($lap_re)\s+/;
+    $regex .=
+      qr/($timeofday_re)\s+($stop_re)\s+($duration_re)\s+($totaltime_re)/;
+
+    my @pitsops;
+    print $regex;
+
+    while (<$text>) {
+        next unless /$regex/o;
+        $no        = $1;
+        $driver    = $2;
+        $entrant   = $3;
+        $lap       = $4;
+        $timeofday = $5;
+        $stop      = $6;
+        $duration  = $7;
+        $totaltime = $8;
+
+        push @pitstops,
+          {
+            'no',        $no,        'driver',    $driver,
+            'entrant',   $entrant,   'lap',       $lap,
+            'timeofday', $timeofday, 'stop',      $stop,
+            'duration',  $duration,  'totaltime', $totaltime,
+          };
+
+    }
+    print Dumper @pitstops;
 }
 
 sub race_fastest_laps
 {
     my $text = shift;
 
-    my ($pos, $no, $nat, $entrant, $laptime, $on, $gap, $kph, $timeofday);
+    my $on_re = $lap_re;
+    my ( $pos, $no, $nat, $entrant, $laptime, $on, $gap, $kph, $timeofday );
     my $regex = qr/($pos_re)\s+($no_re)\s+($driver_re)($nat_re)($entrant_re)/;
-    $regex .= qr/($laptime_re)\s+($on_re)\s+($gap_re)*\s+($kph_re)\s+($timeofday_re)/;
+    $regex .=
+      qr/($laptime_re)\s+($on_re)\s+($gap_re)*\s+($kph_re)\s+($timeofday_re)/;
     my @laps;
 
     while (<$text>) {
-        next unless /$regex/o ;
-        $pos =$1;
-        $no = $2;
-        $driver = $3;
-        $nat = $4;
-        $entrant = $5;
-        $laptime = $6;
-        $on = $7;
-        $gap = $8;
-        $kph = $9;
+        next unless /$regex/o;
+        $pos       = $1;
+        $no        = $2;
+        $driver    = $3;
+        $nat       = $4;
+        $entrant   = $5;
+        $laptime   = $6;
+        $on        = $7;
+        $gap       = $8;
+        $kph       = $9;
         $timeofday = $10;
-        $nat =~ s/\s+$//;
-        $driver =~ s/\s+$//;
+        $nat     =~ s/\s+$//;
+        $driver  =~ s/\s+$//;
         $entrant =~ s/\s+$//;
         $entrant =~ s/^\s+//;
-        push @laps, {
-            'pos' , $pos,
-            'no', $no,
-            'driver', $driver,
-            'nat', $nat,
-            'entrant', $entrant,
-            'laptime' ,$laptime,
-            'on', $on,
-            'gap', $gap,
-            'kph', $kph,
-            'timeofday', $timeofday,
-        };
+        push @laps,
+          {
+            'pos',     $pos,     'no',        $no,
+            'driver',  $driver,  'nat',       $nat,
+            'entrant', $entrant, 'laptime',   $laptime,
+            'on',      $on,      'gap',       $gap,
+            'kph',     $kph,     'timeofday', $timeofday,
+          };
     }
 
     print Dumper @laps;
@@ -104,7 +166,7 @@ sub race_lap_analysis
     my ( @col_pos, $width, $prev_col, $len, $idx, $line );
     my %laptime;
 
-    HEADER: while (<$text>) {
+  HEADER: while (<$text>) {
         if ( my @pos = /$header_re/go ) {
 
             # skip empty lines
@@ -116,8 +178,8 @@ sub race_lap_analysis
                 push @col_pos, pos $line;
             }
 
-            TIMES: while (<$text>) {
-                next TIMES if (/^\n/);
+          TIMES: while (<$text>) {
+                next TIMES  if (/^\n/);
                 next HEADER if (/^\f/);
                 $len = length;
                 $prev_col = $idx = 0;
@@ -129,7 +191,7 @@ sub race_lap_analysis
                         {
                             for my $k ( keys %temp ) {
                                 $laptime{ $pos[$idx] }{ sprintf "%02d", $k } =
-                                $temp{$k};
+                                  $temp{$k};
                             }
                         }
                         $prev_col = $col;
@@ -159,6 +221,35 @@ sub race_maximum_speeds
             print "$sector[6]\t$sector[7]\t$sector[8]\n";
         }
     }
+}
+
+sub qualifying_best_sector_times
+{
+    my $text = shift;
+
+    my $regex  = qr/\G($name_re) +($sectortime_re)\s+/;
+    my $num_re = qr/ ($no_re) /;
+
+    my @times;
+    my ( $line, $name, $sectortime, $pos, $n, $sector);
+
+  LOOP: while ( $line = <$text> ) {
+        pos $line = 0;
+        next unless ( $line =~ /$num_re/g );
+        $pos = $1;
+        $sector = 0;
+        while ( $line =~ /$num_re/g ) {
+            $no = $1;
+            next LOOP unless ( $name, $sectortime ) = $line =~ /$regex/;
+            push @times,
+              {
+                'pos',  $pos,  'no',         $no,
+                'name', $name, 'sectortime', $sectortime,
+                'sector', ++$sector
+              };
+        }
+    }
+    print Dumper @times;
 }
 
 sub race_best_sector_times
