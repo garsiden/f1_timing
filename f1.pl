@@ -256,35 +256,40 @@ sub qualifying_best_sector_times
               };
         }
     }
-    print Dumper @times;
+
+    #print Dumper @times;
 
     # add to database
-    my $dbh = db_connect();
-    my $stmt =
-        'INSERT INTO qualifying_sector (race_id,pos,no,driver,sector,time)'
-      . 'VALUES(?,?,?,?,?,?)';
+    my $dbh     = db_connect();
+    my $table   = 'qualifying_sector';
+    my $race_id = 'aus-2011';
+    my @keys    = keys %{ $times[0] };
+
+    my $stmt = "INSERT INTO $table (race_id, " . join ', ', @keys;
+    $stmt .= ") VALUES(?, " . join ', ', ('?') x scalar @keys;
+    $stmt .= ")";
+
+    print $stmt, "\n";
+
     my $sth = $dbh->prepare($stmt);
 
-    my ( @pos_vals, @no_vals, @driver_vals, @sector_vals, @time_vals );
+    my @cols;
+
     for my $t (@times) {
-        push @pos_vals,    $t->{pos};
-        push @no_vals,     $t->{no};
-        push @driver_vals, $t->{driver};
-        push @sector_vals, $t->{sector};
-        push @time_vals,   $t->{time};
+        for my $c ( 0 .. $#keys ) {
+            push @{ $cols[$c] }, $t->{ $keys[$c] };
+        }
     }
 
-    print Dumper @pos_vals;
-    $sth->bind_param_array( 1, 'aus-2011' );
-    $sth->bind_param_array( 2, \@pos_vals );
-    $sth->bind_param_array( 3, \@no_vals );
-    $sth->bind_param_array( 4, \@driver_vals );
-    $sth->bind_param_array( 5, \@sector_vals );
-    $sth->bind_param_array( 6, \@time_vals );
+    #print Dumper @cols;
+
+    $sth->bind_param_array( 1, $race_id );
+    for my $c ( 0 .. $#keys ) {
+        $sth->bind_param_array( $c + 2, \@{ $cols[$c] } );
+    }
 
     $sth->execute_array( { ArrayTupleStatus => \my @tuple_status } );
     $dbh->commit;
-
 }
 
 sub race_best_sector_times
