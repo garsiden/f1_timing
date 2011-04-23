@@ -1,4 +1,5 @@
 #! /usr/bin/env perl
+use DBI;
 use Data::Dumper;
 
 use strict;
@@ -13,18 +14,25 @@ use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
 
 # shared regexs
 $name_re       = q#[A-Z]\. [A-Z '-]+?#;
+$driver_re     = $name_re;
 $laptime_re    = '\d:\d\d\.\d\d\d';
 $sectortime_re = '\d\d\.\d\d\d';
-$maxspeed_re   = '\d\d\d\.\d';
+$maxspeed_re   = '\d\d\d\.\d{1,3}';
+$kph_re        = $maxspeed_re;
 $entrant_re    = '[A-z &]+?';
 $pos_re        = '\d{1,2}';
 $no_re         = $pos_re;
-$driver_re     = $name_re;
 $lap_re        = '\d{1,2}';
 $timeofday_re  = '\d\d:\d\d:\d\d';
 $nat_re        = '[A-Z]{3}';
 $gap_re        = '\d{1,2}\.\d\d\d';
-$kph_re        = '\d\d\d\.\d{1,3}';
+
+# Database variables
+$dbfile      = "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
+$data_source = "dbi:SQLite:dbname=$dbfile";
+$pwd         = q{};
+$user        = q{};
+$dbh         = undef;
 
 #$pwd = 'maggio26';
 #$pwd =~ tr/a-mA-Mn-zN-Z/n-zN-Za-mA-M/;
@@ -227,29 +235,56 @@ sub qualifying_best_sector_times
 {
     my $text = shift;
 
-    my $regex  = qr/\G($name_re) +($sectortime_re)\s+/;
+    my $regex  = qr/\G($driver_re) +($sectortime_re)\s+/;
     my $num_re = qr/ ($no_re) /;
 
     my @times;
-    my ( $line, $name, $sectortime, $pos, $n, $sector);
+    my ( $line, $driver, $time, $pos, $n, $sector );
 
   LOOP: while ( $line = <$text> ) {
         pos $line = 0;
         next unless ( $line =~ /$num_re/g );
-        $pos = $1;
+        $pos    = $1;
         $sector = 0;
         while ( $line =~ /$num_re/g ) {
             $no = $1;
-            next LOOP unless ( $name, $sectortime ) = $line =~ /$regex/;
+            next LOOP unless ( $driver, $time ) = $line =~ /$regex/;
             push @times,
               {
-                'pos',  $pos,  'no',         $no,
-                'name', $name, 'sectortime', $sectortime,
-                'sector', ++$sector
+                'pos',  $pos,  'no',     $no, 'driver', $driver,
+                'time', $time, 'sector', ++$sector
               };
         }
     }
     print Dumper @times;
+
+    # add to database
+    my $dbh = db_connect();
+    my $stmt =
+        'INSERT INTO qualifying_sector (race_id,pos,no,driver,sector,time)'
+      . 'VALUES(?,?,?,?,?,?)';
+    my $sth = $dbh->prepare($stmt);
+
+    my ( @pos_vals, @no_vals, @driver_vals, @sector_vals, @time_vals );
+    for my $t (@times) {
+        push @pos_vals,    $t->{pos};
+        push @no_vals,     $t->{no};
+        push @driver_vals, $t->{driver};
+        push @sector_vals, $t->{sector};
+        push @time_vals,   $t->{time};
+    }
+
+    print Dumper @pos_vals;
+    $sth->bind_param_array( 1, 'aus-2011' );
+    $sth->bind_param_array( 2, \@pos_vals );
+    $sth->bind_param_array( 3, \@no_vals );
+    $sth->bind_param_array( 4, \@driver_vals );
+    $sth->bind_param_array( 5, \@sector_vals );
+    $sth->bind_param_array( 6, \@time_vals );
+
+    $sth->execute_array( { ArrayTupleStatus => \my @tuple_status } );
+    $dbh->commit;
+
 }
 
 sub race_best_sector_times
@@ -288,5 +323,72 @@ sub provisional_starting_grid
             print "$pos\t$no\t$name\t$time\t$entrant\n";
         }
     }
+}
+
+sub add_db_list
+{
+    my $dbh = db_connect();
+
+    # Add to submissions lists  (for testing delete from table first)
+    # $dbh->do("DELETE FROM webs_core;");
+
+    # prepare statements to add to webs_core and webs_obs tables
+    my ( @keys, $statement, $sth_sub, $sth_obs );
+    @keys = qw! sub_id core_date start_time end_time note !;
+    $statement =
+      "INSERT INTO webs_core (" . join( ", ", @keys ) . ") VALUES(?,?,?,?,?);";
+    $sth_sub = $dbh->prepare($statement);
+
+    $sth_obs = $dbh->prepare(
+        "INSERT INTO webs_obs (sub_id, bto_code, count) VALUES(?,?,?)");
+
+    # ensure BTO codes are available
+    #my $bto_href = get_bto_codes();
+
+    # loop through array of subs list and add to webs_core & webs_obs
+    my ( $sub_id, @obs, @values, @count_values, @bto_values );
+
+    for my $sref (@_) {
+        eval {
+            @values = @count_values = @bto_values = ();
+            $sub_id = $sref->{sub_id};
+
+            # add submissions list
+            for my $key (@keys) { push @values, $sref->{$key}; }
+            $sth_sub->execute(@values);
+
+            # add observations into webs_obs
+            @obs = @{ $sref->{obs} };
+            for my $oref (@obs) {
+
+                #$bto = $bto_href->{ $oref->{species} }
+                #or die "No BTO code for $oref->{species} in list $sub_id\n";
+                #push @bto_values,   $bto;
+                push @count_values, $oref->{count};
+            }
+            $sth_obs->bind_param_array( 1, $sub_id );
+            $sth_obs->bind_param_array( 2, \@bto_values );
+            $sth_obs->bind_param_array( 3, \@count_values );
+            $sth_obs->execute_array(
+                { ArrayTupleStatus => \my @tuple_status } );
+            $dbh->commit;
+        };
+        if ($@) {
+            warn "Transaction aborted because: $@";
+            eval { $dbh->rollback };
+        }
+    }
+}
+
+sub db_connect
+{
+    unless ($dbh) {
+        $dbh = DBI->connect( $data_source, $user, $pwd )
+          or die $DBI::errstr;
+        $dbh->{AutoCommit} = 0;
+        $dbh->{RaiseError} = 1;
+    }
+
+    return $dbh;
 }
 
