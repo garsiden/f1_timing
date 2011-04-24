@@ -262,7 +262,7 @@ sub qualifying_best_sector_times
     # add to database
     my $table   = 'qualifying_sector';
     my $race_id = 'aus-2011';
-    db_insert_array($race_id, $table, \@times);
+    db_insert_array( $race_id, $table, \@times );
 }
 
 sub race_best_sector_times
@@ -303,61 +303,6 @@ sub provisional_starting_grid
     }
 }
 
-sub add_db_list
-{
-    my $dbh = db_connect();
-
-    # Add to submissions lists  (for testing delete from table first)
-    # $dbh->do("DELETE FROM webs_core;");
-
-    # prepare statements to add to webs_core and webs_obs tables
-    my ( @keys, $statement, $sth_sub, $sth_obs );
-    @keys = qw! sub_id core_date start_time end_time note !;
-    $statement =
-      "INSERT INTO webs_core (" . join( ", ", @keys ) . ") VALUES(?,?,?,?,?);";
-    $sth_sub = $dbh->prepare($statement);
-
-    $sth_obs = $dbh->prepare(
-        "INSERT INTO webs_obs (sub_id, bto_code, count) VALUES(?,?,?)");
-
-    # ensure BTO codes are available
-    #my $bto_href = get_bto_codes();
-
-    # loop through array of subs list and add to webs_core & webs_obs
-    my ( $sub_id, @obs, @values, @count_values, @bto_values );
-
-    for my $sref (@_) {
-        eval {
-            @values = @count_values = @bto_values = ();
-            $sub_id = $sref->{sub_id};
-
-            # add submissions list
-            for my $key (@keys) { push @values, $sref->{$key}; }
-            $sth_sub->execute(@values);
-
-            # add observations into webs_obs
-            @obs = @{ $sref->{obs} };
-            for my $oref (@obs) {
-
-                #$bto = $bto_href->{ $oref->{species} }
-                #or die "No BTO code for $oref->{species} in list $sub_id\n";
-                #push @bto_values,   $bto;
-                push @count_values, $oref->{count};
-            }
-            $sth_obs->bind_param_array( 1, $sub_id );
-            $sth_obs->bind_param_array( 2, \@bto_values );
-            $sth_obs->bind_param_array( 3, \@count_values );
-            $sth_obs->execute_array(
-                { ArrayTupleStatus => \my @tuple_status } );
-            $dbh->commit;
-        };
-        if ($@) {
-            warn "Transaction aborted because: $@";
-            eval { $dbh->rollback };
-        }
-    }
-}
-
 sub db_connect
 {
     unless ($dbh) {
@@ -372,34 +317,41 @@ sub db_connect
 
 sub db_insert_array
 {
-    my ($race_id, $table, $array_ref) = @_;
+    my ( $race_id, $table, $array_ref ) = @_;
 
-    my $dbh     = db_connect();
-    my @keys    = keys %{ $$array_ref[0] };
+    my $dbh = db_connect();
 
-    my $stmt = "INSERT INTO $table (race_id, " . join ', ', @keys;
-    $stmt .= ") VALUES(?, " . join ', ', ('?') x scalar @keys;
-    $stmt .= ")";
+    eval {
+        my @keys = keys %{ $$array_ref[0] };
 
-    print $stmt, "\n";
+        my $stmt = "INSERT INTO $table (race_id, " . join ', ', @keys;
+        $stmt .= ") VALUES(?, " . join ', ', ('?') x scalar @keys;
+        $stmt .= ")";
 
-    my $sth = $dbh->prepare($stmt);
+        print $stmt, "\n";
 
-    my @cols;
+        my $sth = $dbh->prepare($stmt);
 
-    for my $t (@$array_ref) {
-        for my $c ( 0 .. $#keys ) {
-            push @{ $cols[$c] }, $t->{ $keys[$c] };
+        my @cols;
+
+        for my $t (@$array_ref) {
+            for my $c ( 0 .. $#keys ) {
+                push @{ $cols[$c] }, $t->{ $keys[$c] };
+            }
         }
+
+        #print Dumper @cols;
+
+        $sth->bind_param_array( 1, $race_id );
+        for my $c ( 0 .. $#keys ) {
+            $sth->bind_param_array( $c + 2, \@{ $cols[$c] } );
+        }
+
+        $sth->execute_array( { ArrayTupleStatus => \my @tuple_status } );
+        $dbh->commit;
+    };
+    if ($@) {
+        warn "Transaction aborted because: $@";
+        eval { $dbh->rollback };
     }
-
-    #print Dumper @cols;
-
-    $sth->bind_param_array( 1, $race_id );
-    for my $c ( 0 .. $#keys ) {
-        $sth->bind_param_array( $c + 2, \@{ $cols[$c] } );
-    }
-
-    $sth->execute_array( { ArrayTupleStatus => \my @tuple_status } );
-    $dbh->commit;
 }
