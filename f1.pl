@@ -260,36 +260,9 @@ sub qualifying_best_sector_times
     #print Dumper @times;
 
     # add to database
-    my $dbh     = db_connect();
     my $table   = 'qualifying_sector';
     my $race_id = 'aus-2011';
-    my @keys    = keys %{ $times[0] };
-
-    my $stmt = "INSERT INTO $table (race_id, " . join ', ', @keys;
-    $stmt .= ") VALUES(?, " . join ', ', ('?') x scalar @keys;
-    $stmt .= ")";
-
-    print $stmt, "\n";
-
-    my $sth = $dbh->prepare($stmt);
-
-    my @cols;
-
-    for my $t (@times) {
-        for my $c ( 0 .. $#keys ) {
-            push @{ $cols[$c] }, $t->{ $keys[$c] };
-        }
-    }
-
-    #print Dumper @cols;
-
-    $sth->bind_param_array( 1, $race_id );
-    for my $c ( 0 .. $#keys ) {
-        $sth->bind_param_array( $c + 2, \@{ $cols[$c] } );
-    }
-
-    $sth->execute_array( { ArrayTupleStatus => \my @tuple_status } );
-    $dbh->commit;
+    db_insert_array($race_id, $table, \@times);
 }
 
 sub race_best_sector_times
@@ -397,3 +370,36 @@ sub db_connect
     return $dbh;
 }
 
+sub db_insert_array
+{
+    my ($race_id, $table, $array_ref) = @_;
+
+    my $dbh     = db_connect();
+    my @keys    = keys %{ $$array_ref[0] };
+
+    my $stmt = "INSERT INTO $table (race_id, " . join ', ', @keys;
+    $stmt .= ") VALUES(?, " . join ', ', ('?') x scalar @keys;
+    $stmt .= ")";
+
+    print $stmt, "\n";
+
+    my $sth = $dbh->prepare($stmt);
+
+    my @cols;
+
+    for my $t (@$array_ref) {
+        for my $c ( 0 .. $#keys ) {
+            push @{ $cols[$c] }, $t->{ $keys[$c] };
+        }
+    }
+
+    #print Dumper @cols;
+
+    $sth->bind_param_array( 1, $race_id );
+    for my $c ( 0 .. $#keys ) {
+        $sth->bind_param_array( $c + 2, \@{ $cols[$c] } );
+    }
+
+    $sth->execute_array( { ArrayTupleStatus => \my @tuple_status } );
+    $dbh->commit;
+}
