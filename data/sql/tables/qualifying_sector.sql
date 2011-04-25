@@ -12,6 +12,9 @@ CREATE TABLE qualifying_sector
     sector INTEGER NOT NULL,
     time DATETIME NOT NULL,
     UNIQUE (race_id, no, sector)
+    CHECK (pos BETWEEN 1 AND 24),
+    CHECK (no BETWEEN 1 AND 24),
+    CHECK (sector IN(1, 2, 3))
 );
 
 CREATE INDEX IF NOT EXISTS qualifying_sector_race_id_idx ON qualifying_sector (race_id);
