@@ -1,22 +1,23 @@
-DROP TABLE IF EXISTS qualifying_sector;
+DROP TABLE IF EXISTS qualifying_best_sector_time;
 
-CREATE TABLE qualifying_sector
+CREATE TABLE qualifying_best_sector_time
 (
-    race_id CHAR(8) NOT NULL
-    REFERENCES race(id)
-    ON UPDATE CASCADE
-    ON DELETE CASCADE,
+    race_id CHAR(8) NOT NULL,
+    sector INTEGER NOT NULL,
     pos INTEGER NOT NULL,
     no INTEGER NOT NULL,
     driver VARCHAR(25) NOT NULL,
-    sector INTEGER NOT NULL,
     time DATETIME NOT NULL,
-    UNIQUE (race_id, no, sector)
-    CHECK (pos BETWEEN 1 AND 24),
-    CHECK (no BETWEEN 1 AND 24),
-    CHECK (sector IN(1, 2, 3))
+    PRIMARY KEY (race_id, sector, pos),
+    UNIQUE (race_id, sector, no),
+    FOREIGN KEY (race_id) REFERENCES race(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+    CHECK (sector IN(1, 2, 3)),
+    CHECK (pos BETWEEN 1 AND 26),
+    CHECK (no BETWEEN 1 AND 26)
 );
 
-CREATE INDEX IF NOT EXISTS qualifying_sector_race_id_idx ON qualifying_sector (race_id);
-CREATE INDEX IF NOT EXISTS qualifying_sector_pos_idx ON qualifying_sector (pos);
-CREATE INDEX IF NOT EXISTS qualifying_sector_no_idx ON qualifying_sector (no);
+CREATE INDEX IF NOT EXISTS qualifying_best_sector_time_race_id_idx ON qualifying_best_sector_time (race_id);
+CREATE INDEX IF NOT EXISTS qualifying_best_sector_time_pos_idx ON qualifying_best_sector_time (pos);
+CREATE INDEX IF NOT EXISTS qualifying_best_sector_time_no_idx ON qualifying_best_sector_time (no);
