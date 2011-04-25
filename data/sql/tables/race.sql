@@ -10,7 +10,8 @@ CREATE TABLE race
     start_time_gmt DATETIME NOT NULL,
     lap_km DECIMAL(4,3) NOT NULL,
     lap_mi DECIMAL(4,3) NOT NULL,
-    laps INTEGER NOT NULL
+    laps INTEGER NOT NULL,
+    UNIQUE (id, round)
 );
 
 CREATE INDEX IF NOT EXISTS idx_race_round ON race(round);
