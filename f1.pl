@@ -19,7 +19,7 @@ $laptime_re    = '\d:\d\d\.\d\d\d';
 $sectortime_re = '\d\d\.\d\d\d';
 $maxspeed_re   = '\d\d\d\.\d{1,3}';
 $kph_re        = $maxspeed_re;
-$entrant_re    = '[A-z &]+?';
+$entrant_re    = '[A-z &]+';
 $pos_re        = '\d{1,2}';
 $no_re         = $pos_re;
 $lap_re        = '\d{1,2}';
@@ -40,15 +40,34 @@ $dbh         = undef;
 
 # map PDFs to sub-routines
 %pdf = (
-
-    #'aus-race-grid' => \&provisional_starting_grid,
+    # Practice
+    #
+    # Qualifying
+    # 'aus-qualifying-sectors' => \&qualifying_session_best_sector_times,
+    #
+    # Race
+    'aus-race-grid' => \&provisional_starting_grid,
     #'aus-race-sectors' => \&race_best_sector_times,
     #'aus-race-speeds' => \&race_maximum_speeds,
     #'aus-race-analysis' => \&race_lap_analysis,
     #'aus-race-laps' => \&race_fastest_laps,
     #'aus-race-summary' => \&race_pit_stop_summary,
     #'aus-race-trap' => \&race_speed_trap,
-    'aus-qualifying-sectors' => \&qualifying_best_sector_times,
+    # TODO
+    #'aus-qualifying-speeds' => \&qualifying_session_maximum_speeds,
+    #'aus-qualifying-times' => \&qualifying_session_lap_times,
+    #'aus-session1-classification' => first_practice_session_classification,
+    #'aus-session1-times' => first_practice_session_lap_times,
+    #'aus-session2-classification' => second_practice_session_classification,
+    #'aus-session2-times' => second_practice_session_lap_times,
+    #'aus-session3-classification' => third_practice_session_classification,
+    #'aus-session3-times' => third_practice_session_lap_times,
+    #
+    # OTHERS
+    # 'aus-qualifying-classification,
+    # 'aus-race-chart'
+    # 'aus-race-classification'
+    # 'aus-race-history'
 );
 
 for my $key ( keys %pdf ) {
@@ -117,8 +136,8 @@ sub race_pit_stop_summary
           {
             'no',        $no,        'driver',    $driver,
             'entrant',   $entrant,   'lap',       $lap,
-            'timeofday', $timeofday, 'stop',      $stop,
-            'duration',  $duration,  'totaltime', $totaltime,
+            'time_of_day', $timeofday, 'stop',      $stop,
+            'duration',  $duration,  'total_time', $totaltime,
           };
 
     }
@@ -231,7 +250,7 @@ sub race_maximum_speeds
     }
 }
 
-sub qualifying_best_sector_times
+sub qualifying_session_best_sector_times
 {
     my $text = shift;
 
@@ -269,7 +288,7 @@ sub race_best_sector_times
 {
     my $text = shift;
 
-    my $regex = qr/($no_re) ($name_re)($sectortime_re)/;
+    my $regex = qr/($no_re) ($driver_re)($sectortime_re)/;
 
     while (<$text>) {
         if ( my @sector = /$regex/go ) {
@@ -285,22 +304,26 @@ sub provisional_starting_grid
 {
     my $text = shift;
 
+    my $odd  = qr/($pos_re) +($no_re) +($driver_re)\s+($laptime_re)?/o;
+    my $even = qr/($no_re) +($driver_re) +($laptime_re)? +($pos_re)/o;
+    my $entrant_line = qr/^ +($entrant_re)\s+/o;
+    my ( $pos, $no, $driver, $time, $entrant, @grid );
+
     while (<$text>) {
-
-        my $odd  = qr/($pos_re)\s+($no_re) ($name_re)($laptime_re)?/o;
-        my $even = qr/($no_re) ($name_re)($laptime_re)?\s+($pos_re)/o;
-        my ( $pos, $no, $name, $time, $entrant );
-
-        if (   ( ( $pos, $no, $name, $time ) = /$odd/ )
-            || ( ( $no, $name, $time, $pos ) = /$even/ ) )
+        if (   ( ( $pos, $no, $driver, $time ) = /$odd/ )
+            || ( ( $no, $driver, $time, $pos ) = /$even/ ) )
         {
-            ($entrant) = ( <$text> =~ /^\s+($entrant_re)/o );
+            ($entrant) = ( <$text> =~ /$entrant_line/ );
             $entrant =~ s/\s+$//;
-            $name    =~ s/\s+$//;
-            $time = 'no time ' unless defined $time;
-            print "$pos\t$no\t$name\t$time\t$entrant\n";
+            push @grid,
+              {
+                'pos',     $pos,     'no',   $no, 'driver', $driver,
+                'entrant', $entrant, 'time', $time
+              };
         }
     }
+
+    db_insert_array( 'aus-2011', 'race_grid', \@grid );
 }
 
 sub db_connect
@@ -323,15 +346,16 @@ sub db_insert_array
 
     eval {
         my @keys = keys %{ $$array_ref[0] };
-
+        # create insert sql statement with placeholders, using hash keys as
+        # field names
         my $stmt = "INSERT INTO $table (race_id, " . join ', ', @keys;
         $stmt .= ") VALUES(?, " . join ', ', ('?') x scalar @keys;
         $stmt .= ")";
-
+    
         print $stmt, "\n";
-
         my $sth = $dbh->prepare($stmt);
 
+        # create an array for each field and fill from each records hash value
         my @cols;
 
         for my $t (@$array_ref) {
@@ -339,9 +363,8 @@ sub db_insert_array
                 push @{ $cols[$c] }, $t->{ $keys[$c] };
             }
         }
-
-        #print Dumper @cols;
-
+        print Dumper @cols;
+        # bind parameter arrays to prepared SQL statement
         $sth->bind_param_array( 1, $race_id );
         for my $c ( 0 .. $#keys ) {
             $sth->bind_param_array( $c + 2, \@{ $cols[$c] } );
