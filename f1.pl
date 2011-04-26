@@ -50,6 +50,7 @@ $dbh         = undef;
     #
     # Race
     'aus-race-analysis' => \&race_lap_analysis,
+
     #'aus-race-grid' => \&provisional_starting_grid,
     #'aus-race-trap' => \&race_speed_trap,
     #'aus-race-sectors' => \&race_best_sector_times,
@@ -86,8 +87,8 @@ for my $key ( keys %pdf ) {
     close $text
       or die "bad PDFTOTEXT: $! $?";
 }
-# PRACTICE
 
+# PRACTICE
 
 # QUALIFYING
 sub qualifying_session_best_sector_times
@@ -126,8 +127,8 @@ sub qualifying_speed_trap
 
     print Dumper $speed;
     my $race_id = 'aus-2011';
-    my $table = 'qualifying_speed_trap';
-    db_insert_array($race_id, $table, $speed);
+    my $table   = 'qualifying_speed_trap';
+    db_insert_array( $race_id, $table, $speed );
 }
 
 # RACE
@@ -139,6 +140,7 @@ sub race_lap_analysis
     my $laptime_re = qr/($lap_re) (?:P)? +($timeofday_re|$laptime_re)\s?/;
     my ( @col_pos, $width, $prev_col, $len, $idx, $line );
     my %laptime;
+    my @laps;
 
   HEADER: while (<$text>) {
         if ( my @pos = /$header_re/g ) {
@@ -176,11 +178,15 @@ sub race_lap_analysis
         }
 
     }
+
     #foreach my $k ( sort keys %{ $laptime{24} } ) {
     #    print "$k\t$laptime{24}{$k}\n";
     #}
-    print Dumper %laptime;
+    #print Dumper %laptime;
+    my @fields = qw( no lap time );
+    db_insert_hash( 'aus-2011', 'race_lap_analysis', \@fields, \%laptime );
 }
+
 sub provisional_starting_grid
 {
     my $text = shift;
@@ -216,8 +222,8 @@ sub race_speed_trap
 
     print Dumper $speed;
     my $race_id = 'aus-2011';
-    my $table = 'race_speed_trap';
-    db_insert_array($race_id, $table, $speed);
+    my $table   = 'race_speed_trap';
+    db_insert_array( $race_id, $table, $speed );
 }
 
 sub race_best_sector_times
@@ -325,8 +331,6 @@ sub race_fastest_laps
     db_insert_array( 'aus-2011', 'race_fastest_lap', \@laps );
 }
 
-
-
 # SHARED
 sub speed_trap
 {
@@ -411,7 +415,6 @@ sub best_sector_times
     return \@times;
 }
 
-
 # DATABASE
 sub db_connect
 {
@@ -450,13 +453,65 @@ sub db_insert_array
         my @cols;
 
         for my $hash (@$array_ref) {
-            map { push @{ $cols[$_] }, $hash->{ $keys[$_] } } ( 0 .. $#keys )
+            map { push @{ $cols[$_] }, $hash->{ $keys[$_] } } ( 0 .. $#keys );
         }
 
         #print Dumper @cols;
         # bind parameter arrays to prepared SQL statement
         $sth->bind_param_array( 1, $race_id );
         for my $c ( 0 .. $#keys ) {
+            $sth->bind_param_array( $c + 2, \@{ $cols[$c] } );
+        }
+
+        $tuples = $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
+        $dbh->commit;
+    };
+    if ($@) {
+        print Dumper @tuple_status;
+        warn "Transaction aborted because: $@";
+        eval { $dbh->rollback };
+    }
+    else {
+        print "$tuples record(s) added to table $table\n";
+    }
+
+    return $tuples;
+}
+
+sub db_insert_hash
+{
+    my ( $race_id, $table, $keys, $hash_ref ) = @_;
+
+    my $dbh = db_connect();
+    my $tuples;
+    my @tuple_status;
+
+    eval {
+
+        # create insert sql statement with placeholders, using hash keys as
+        # field names
+        my $stmt = "INSERT INTO $table (race_id, " . join ', ', @$keys;
+        $stmt .= ") VALUES(?, " . join ', ', ('?') x scalar @$keys;
+        $stmt .= ")";
+
+        print $stmt, "\n";
+        my $sth = $dbh->prepare($stmt);
+
+        # create an array for each field and fill from each records hash value
+        my ( $idx, @cols );
+
+        for my $k ( keys %$hash_ref ) {
+            for my $k2 ( keys %{ $hash_ref->{$k} } ) {
+                $idx = 0;
+                map { push @{ $cols[ $idx++ ] }, $_ }
+                  ( $k, $k2, $hash_ref->{$k}{$k2} );
+            }
+        }
+
+        #print Dumper @cols;
+        # bind parameter arrays to prepared SQL statement
+        $sth->bind_param_array( 1, $race_id );
+        for my $c ( 0 .. $#$keys ) {
             $sth->bind_param_array( $c + 2, \@{ $cols[$c] } );
         }
 
