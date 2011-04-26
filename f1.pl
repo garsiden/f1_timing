@@ -19,7 +19,7 @@ $laptime_re    = '\d:\d\d\.\d\d\d';
 $sectortime_re = '\d\d\.\d\d\d';
 $maxspeed_re   = '\d\d\d\.\d{1,3}';
 $kph_re        = $maxspeed_re;
-$entrant_re    = '[A-z &]+';
+$entrant_re    = '[A-z0-9& -]+';
 $pos_re        = '\d{1,2}';
 $no_re         = $pos_re;
 $lap_re        = '\d{1,2}';
@@ -40,21 +40,23 @@ $dbh         = undef;
 
 # map PDFs to sub-routines
 %pdf = (
+
     # Practice
     #
     # Qualifying
     # 'aus-qualifying-sectors' => \&qualifying_session_best_sector_times,
+    #'aus-qualifying-speeds' => \&qualifying_session_maximum_speeds,
     #
     # Race
-    #'aus-race-grid' => \&provisional_starting_grid,
+    'aus-race-grid' => \&provisional_starting_grid,
+
     #'aus-race-sectors' => \&race_best_sector_times,
-    'aus-race-speeds' => \&race_maximum_speeds,
+    #'aus-race-speeds' => \&race_maximum_speeds,
     #'aus-race-analysis' => \&race_lap_analysis,
     #'aus-race-laps' => \&race_fastest_laps,
     #'aus-race-summary' => \&race_pit_stop_summary,
     #'aus-race-trap' => \&race_speed_trap,
     # TODO
-    'aus-qualifying-speeds' => \&qualifying_session_maximum_speeds,
     #'aus-qualifying-times' => \&qualifying_session_lap_times,
     #'aus-session1-classification' => first_practice_session_classification,
     #'aus-session1-times' => first_practice_session_lap_times,
@@ -86,7 +88,6 @@ sub race_speed_trap
 {
     my $text = shift;
 
-    #my $kph_re = '\d\d\d\.\d';
     my $regex =
       qr/($pos_re)\s+($no_re)\s+($driver_re)\s+($kph_re)\s+($timeofday_re)/;
 
@@ -96,9 +97,9 @@ sub race_speed_trap
         next unless ( my ( $pos, $no, $driver, $kph, $timeofday ) = /$regex/ );
         push @speed,
           {
-            'pos',       $pos,    'no',  $no,
-            'driver',    $driver, 'kph', $kph,
-            'timeofday', $timeofday
+            'pos',         $pos,    'no',  $no,
+            'driver',      $driver, 'kph', $kph,
+            'time_of_day', $timeofday
           };
     }
 
@@ -123,21 +124,21 @@ sub race_pit_stop_summary
 
     while (<$text>) {
         next unless /$regex/o;
-        $no        = $1;
-        $driver    = $2;
-        $entrant   = $3;
-        $lap       = $4;
-        $timeofday = $5;
-        $stop      = $6;
-        $duration  = $7;
-        $totaltime = $8;
+        $no          = $1;
+        $driver      = $2;
+        $entrant     = $3;
+        $lap         = $4;
+        $time_of_day = $5;
+        $stop        = $6;
+        $duration    = $7;
+        $totaltime   = $8;
 
         push @pitstops,
           {
-            'no',        $no,        'driver',    $driver,
-            'entrant',   $entrant,   'lap',       $lap,
-            'time_of_day', $timeofday, 'stop',      $stop,
-            'duration',  $duration,  'total_time', $totaltime,
+            'no',          $no,          'driver',     $driver,
+            'entrant',     $entrant,     'lap',        $lap,
+            'time_of_day', $time_of_day, 'stop',       $stop,
+            'duration',    $duration,    'total_time', $totaltime,
           };
 
     }
@@ -150,9 +151,9 @@ sub race_fastest_laps
 
     my $on_re = $lap_re;
     my ( $pos, $no, $nat, $entrant, $laptime, $on, $gap, $kph, $timeofday );
-    my $regex = qr/($pos_re)\s+($no_re)\s+($driver_re)($nat_re)($entrant_re)/;
+    my $regex = qr/($pos_re) +($no_re) +($driver_re) +($nat_re) +($entrant_re)/;
     $regex .=
-      qr/($laptime_re)\s+($on_re)\s+($gap_re)*\s+($kph_re)\s+($timeofday_re)/;
+      qr/($laptime_re) +($on_re) +($gap_re)? +($kph_re) +($timeofday_re)/;
     my @laps;
 
     while (<$text>) {
@@ -162,26 +163,24 @@ sub race_fastest_laps
         $driver    = $3;
         $nat       = $4;
         $entrant   = $5;
-        $laptime   = $6;
+        $time      = $6;
         $on        = $7;
         $gap       = $8;
         $kph       = $9;
         $timeofday = $10;
-        $nat     =~ s/\s+$//;
-        $driver  =~ s/\s+$//;
         $entrant =~ s/\s+$//;
-        $entrant =~ s/^\s+//;
         push @laps,
           {
-            'pos',     $pos,     'no',        $no,
-            'driver',  $driver,  'nat',       $nat,
-            'entrant', $entrant, 'laptime',   $laptime,
-            'on',      $on,      'gap',       $gap,
-            'kph',     $kph,     'timeofday', $timeofday,
+            'pos',     $pos,     'no',          $no,
+            'driver',  $driver,  'nat',         $nat,
+            'entrant', $entrant, 'time',        $time,
+            'on_lap',  $on,      'gap',         $gap,
+            'kph',     $kph,     'time_of_day', $timeofday,
           };
     }
 
     print Dumper @laps;
+    db_insert_array( 'aus-2011', 'race_fastest_lap', \@laps );
 }
 
 sub race_lap_analysis
@@ -254,9 +253,10 @@ sub race_maximum_speeds
 
     my $table   = 'race_maximum_speed';
     my $race_id = 'aus-2011';
-    my $speeds = maximum_speeds($text);
+    my $speeds  = maximum_speeds($text);
 
     print Dumper $speeds;
+
     # add to database
     db_insert_array( $race_id, $table, $speeds );
 }
@@ -267,9 +267,10 @@ sub qualifying_session_maximum_speeds
 
     my $table   = 'qualifying_maximum_speed';
     my $race_id = 'aus-2011';
-    my $speeds = maximum_speeds($text);
+    my $speeds  = maximum_speeds($text);
 
     print Dumper $speeds;
+
     # add to database
     db_insert_array( $race_id, $table, $speeds );
 }
@@ -287,15 +288,16 @@ sub maximum_speeds
   LOOP: while ( $line = <$text> ) {
         pos $line = 0;
         next unless ( $line =~ /$num_re/g );
-        $pos    = $1;
+        $pos       = $1;
         $speedtrap = 0;
         while ( $line =~ /$num_re/g ) {
             $no = $1;
             next LOOP unless ( $driver, $kph ) = $line =~ /$regex/;
             push @speeds,
               {
-                'pos',  $pos,  'no',     $no, 'driver', $driver,
-                'kph', $kph, 'speedtrap', ++$speedtrap
+                'pos',       $pos,    'no',  $no,
+                'driver',    $driver, 'kph', $kph,
+                'speedtrap', ++$speedtrap
               };
         }
     }
@@ -303,6 +305,7 @@ sub maximum_speeds
     #print Dumper @times;
     return \@speeds;
 }
+
 sub best_sector_times
 {
     my $text = shift;
@@ -351,9 +354,9 @@ sub provisional_starting_grid
 {
     my $text = shift;
 
-    my $odd  = qr/($pos_re) +($no_re) +($driver_re)\s+($laptime_re)?/o;
-    my $even = qr/($no_re) +($driver_re) +($laptime_re)? +($pos_re)/o;
-    my $entrant_line = qr/^ +($entrant_re)\s+/o;
+    my $odd          = qr/($pos_re) +($no_re) +($driver_re)\s+($laptime_re)?/;
+    my $even         = qr/($no_re) +($driver_re) +($laptime_re)? +($pos_re)/;
+    my $entrant_line = qr/^ +($entrant_re)\s+/;
     my ( $pos, $no, $driver, $time, $entrant, @grid );
 
     while (<$text>) {
@@ -370,8 +373,8 @@ sub provisional_starting_grid
         }
     }
 
-    #print Dumper @grid;
-    #db_insert_array( 'aus-2011', 'race_grid', \@grid );
+    print Dumper @grid;
+    db_insert_array( 'aus-2011', 'race_grid', \@grid );
 }
 
 sub db_connect
@@ -405,15 +408,13 @@ sub db_insert_array
         $stmt .= ")";
 
         print $stmt, "\n";
-        my $sth = $dbh->prepare( $stmt);
+        my $sth = $dbh->prepare($stmt);
 
         # create an array for each field and fill from each records hash value
         my @cols;
 
-        for my $t (@$array_ref) {
-            for my $c ( 0 .. $#keys ) {
-                push @{ $cols[$c] }, $t->{ $keys[$c] };
-            }
+        for my $hash (@$array_ref) {
+            map { push @{ $cols[$_] }, $hash->{ $keys[$_] } } ( 0 .. $#keys )
         }
 
         #print Dumper @cols;
@@ -423,8 +424,7 @@ sub db_insert_array
             $sth->bind_param_array( $c + 2, \@{ $cols[$c] } );
         }
 
-        $tuples =
-          $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
+        $tuples = $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
         $dbh->commit;
     };
     if ($@) {
