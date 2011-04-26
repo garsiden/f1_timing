@@ -44,25 +44,26 @@ $dbh         = undef;
     # Practice
     #
     # Qualifying
-    # 'aus-qualifying-sectors' => \&qualifying_session_best_sector_times,
+    'aus-qualifying-trap' => \&qualifying_speed_trap,
+    #'aus-qualifying-sectors' => \&qualifying_session_best_sector_times,
     #'aus-qualifying-speeds' => \&qualifying_session_maximum_speeds,
     #
     # Race
-    'aus-race-grid' => \&provisional_starting_grid,
+    #'aus-race-grid' => \&provisional_starting_grid,
+    'aus-race-trap' => \&race_speed_trap,
 
     #'aus-race-sectors' => \&race_best_sector_times,
     #'aus-race-speeds' => \&race_maximum_speeds,
     #'aus-race-analysis' => \&race_lap_analysis,
     #'aus-race-laps' => \&race_fastest_laps,
     #'aus-race-summary' => \&race_pit_stop_summary,
-    #'aus-race-trap' => \&race_speed_trap,
     # TODO
     #'aus-qualifying-times' => \&qualifying_session_lap_times,
     #'aus-session1-classification' => first_practice_session_classification,
     #'aus-session1-times' => first_practice_session_lap_times,
     #'aus-session2-classification' => second_practice_session_classification,
     #'aus-session2-times' => second_practice_session_lap_times,
-    #'aus-session3-classification' => third_practice_session_classification,
+    #'aus-session2-classification' => third_practice_session_classification,
     #'aus-session3-times' => third_practice_session_lap_times,
     #
     # OTHERS
@@ -83,27 +84,88 @@ for my $key ( keys %pdf ) {
     close $text
       or die "bad PDFTOTEXT: $! $?";
 }
+# PRACTICE
+
+
+# QUALIFYING
+sub qualifying_speed_trap
+{
+    my $text = shift;
+
+    my $speed = speed_trap($text);
+
+    print Dumper $speed;
+    my $race_id = 'aus-2011';
+    my $table = 'qualifying_speed_trap';
+    db_insert_array($race_id, $table, $speed);
+}
+
+sub qualifying_session_best_sector_times
+{
+    my $text = shift;
+
+    my $table   = 'qualifying_best_sector_time';
+    my $race_id = 'aus-2011';
+
+    $times = best_sector_times($text);
+
+    #print Dumper $times;
+    # add to database
+    db_insert_array( $race_id, $table, $times );
+}
+
+sub qualifying_session_maximum_speeds
+{
+    my $text = shift;
+
+    my $table   = 'qualifying_maximum_speed';
+    my $race_id = 'aus-2011';
+    my $speeds  = maximum_speeds($text);
+
+    print Dumper $speeds;
+
+    # add to database
+    db_insert_array( $race_id, $table, $speeds );
+}
+
+# RACE
+sub provisional_starting_grid
+{
+    my $text = shift;
+
+    my $odd          = qr/($pos_re) +($no_re) +($driver_re)\s+($laptime_re)?/;
+    my $even         = qr/($no_re) +($driver_re) +($laptime_re)? +($pos_re)/;
+    my $entrant_line = qr/^ +($entrant_re)\s+/;
+    my ( $pos, $no, $driver, $time, $entrant, @grid );
+
+    while (<$text>) {
+        if (   ( ( $pos, $no, $driver, $time ) = /$odd/ )
+            || ( ( $no, $driver, $time, $pos ) = /$even/ ) )
+        {
+            ($entrant) = ( <$text> =~ /$entrant_line/ );
+            $entrant =~ s/\s+$//;
+            push @grid,
+              {
+                'pos',     $pos,     'no',   $no, 'driver', $driver,
+                'entrant', $entrant, 'time', $time
+              };
+        }
+    }
+
+    print Dumper @grid;
+    db_insert_array( 'aus-2011', 'race_grid', \@grid );
+}
 
 sub race_speed_trap
 {
     my $text = shift;
 
-    my $regex =
-      qr/($pos_re)\s+($no_re)\s+($driver_re)\s+($kph_re)\s+($timeofday_re)/;
+    my $speed = speed_trap($text);
 
-    my @speed;
-
-    while (<$text>) {
-        next unless ( my ( $pos, $no, $driver, $kph, $timeofday ) = /$regex/ );
-        push @speed,
-          {
-            'pos',         $pos,    'no',  $no,
-            'driver',      $driver, 'kph', $kph,
-            'time_of_day', $timeofday
-          };
-    }
-
-    print Dumper @speed;
+    print Dumper $speed;
+    my $race_id = 'aus-2011';
+    my $table = 'race_speed_trap';
+    db_insert_array($race_id, $table, $speed);
 }
 
 sub race_pit_stop_summary
@@ -233,20 +295,6 @@ sub race_lap_analysis
     }
 }
 
-sub qualifying_session_best_sector_times
-{
-    my $text = shift;
-
-    my $table   = 'qualifying_best_sector_time';
-    my $race_id = 'aus-2011';
-
-    $times = best_sector_times($text);
-
-    #print Dumper $times;
-    # add to database
-    db_insert_array( $race_id, $table, $times );
-}
-
 sub race_maximum_speeds
 {
     my $text = shift;
@@ -261,18 +309,27 @@ sub race_maximum_speeds
     db_insert_array( $race_id, $table, $speeds );
 }
 
-sub qualifying_session_maximum_speeds
+# SHARED
+sub speed_trap
 {
     my $text = shift;
 
-    my $table   = 'qualifying_maximum_speed';
-    my $race_id = 'aus-2011';
-    my $speeds  = maximum_speeds($text);
+    my $regex =
+      qr/^ +($pos_re) +($no_re) +($driver_re) +($kph_re) +($timeofday_re)\s+/;
 
-    print Dumper $speeds;
+    my @speed;
 
-    # add to database
-    db_insert_array( $race_id, $table, $speeds );
+    while (<$text>) {
+        next unless ( my ( $pos, $no, $driver, $kph, $timeofday ) = /$regex/ );
+        push @speed,
+          {
+            'pos',         $pos,    'no',  $no,
+            'driver',      $driver, 'kph', $kph,
+            'time_of_day', $timeofday
+          };
+    }
+
+    return \@speed;
 }
 
 sub maximum_speeds
@@ -350,33 +407,7 @@ sub race_best_sector_times
     db_insert_array( $race_id, $table, $times );
 }
 
-sub provisional_starting_grid
-{
-    my $text = shift;
-
-    my $odd          = qr/($pos_re) +($no_re) +($driver_re)\s+($laptime_re)?/;
-    my $even         = qr/($no_re) +($driver_re) +($laptime_re)? +($pos_re)/;
-    my $entrant_line = qr/^ +($entrant_re)\s+/;
-    my ( $pos, $no, $driver, $time, $entrant, @grid );
-
-    while (<$text>) {
-        if (   ( ( $pos, $no, $driver, $time ) = /$odd/ )
-            || ( ( $no, $driver, $time, $pos ) = /$even/ ) )
-        {
-            ($entrant) = ( <$text> =~ /$entrant_line/ );
-            $entrant =~ s/\s+$//;
-            push @grid,
-              {
-                'pos',     $pos,     'no',   $no, 'driver', $driver,
-                'entrant', $entrant, 'time', $time
-              };
-        }
-    }
-
-    print Dumper @grid;
-    db_insert_array( 'aus-2011', 'race_grid', \@grid );
-}
-
+# DATABASE
 sub db_connect
 {
     unless ($dbh) {
