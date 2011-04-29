@@ -42,11 +42,12 @@ $dbh         = undef;
 %pdf = (
 
     # Practice
-    'aus-session1-classification' => \&first_practice_session_classification,
+    #'aus-session1-classification' => \&first_practice_session_classification,
 
     # Qualifying
     #   'aus-qualifying-sectors' => \&qualifying_session_best_sector_times,
     #   'aus-qualifying-speeds' => \&qualifying_session_maximum_speeds,
+    'aus-qualifying-times' => \&qualifying_session_lap_times,
     #   'aus-qualifying-trap' => \&qualifying_speed_trap,
     #
     # Race
@@ -126,6 +127,64 @@ sub qualifying_session_maximum_speeds
     db_insert_array( $race_id, $table, $recs );
 }
 
+sub qualifying_session_lap_times
+{
+    my $text = shift;
+
+    my $header_re  = qr/($no_re)\s+(?:$driver_re)/;
+    my $laptime_re = qr/($lap_re)(?: *P)?\s+($timeofday_re|$laptime_re)\s?/;
+    my ( @col_pos, $width, $prev_col, $len, $idx, $line, %recs );
+
+  HEADER:
+    while (<$text>) {
+        if ( my @pos = /$header_re/g ) {
+
+            # skip empty lines
+            do { $line = <$text> } until $line !~ /^\n$/;
+
+            # split page into two time columns per driver
+            while ( $line =~ m/(NO +TIME\s+?){2}/g ) {
+                push @col_pos, pos $line;
+            }
+
+          TIMES:
+            while (<$text>) {
+                redo HEADER if /$header_re/;
+                next HEADER if /^\f/;
+                next TIMES  if /^\n/;
+                $len = length;
+                $prev_col = $idx = 0;
+                for my $col (@col_pos) {
+                    $width = $col - $prev_col;
+                    if ( $prev_col < $len ) {
+                        if ( my %temp =
+                            substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
+                        {
+                            for my $k ( keys %temp ) {
+                                $recs{ $pos[$idx] }{$k} = $temp{$k};
+                            }
+                        }
+                        $prev_col = $col;
+                        $idx++;
+                    }
+                }
+            }
+        }
+
+    }
+
+    #for my $k (sort keys %{$recs{'7'}}) {
+    #    print $k, "\t", $recs{7}{$k}, "\n";
+    #}
+    #return;
+    my @fields = qw( no lap time );
+    db_insert_hash( 'aus-2011', 'qualifying_lap_time', \@fields, \%recs );
+    #print Dumper %recs;
+    for my $k ( sort { $a <=> $b } ( keys %{ $recs{4} } ) ) {
+        print $k, "\t", $recs{4}{$k}, "\n";
+    }
+}
+
 sub qualifying_speed_trap
 {
     my $text = shift;
@@ -145,13 +204,14 @@ sub race_lap_analysis
 
     my $header_re  = qr/($pos_re)\s+(?:$driver_re)/;
     my $laptime_re = qr/($lap_re)(?: *P)?\s+($timeofday_re|$laptime_re)\s?/;
-    my ( @col_pos, $width, $prev_col, $len, $idx, $line, %recs);
+    my ( @col_pos, $width, $prev_col, $len, $idx, $line, %recs );
 
-  HEADER: while (<$text>) {
+  HEADER:
+    while (<$text>) {
         if ( my @pos = /$header_re/g ) {
 
             # skip empty lines
-            while ( ( $line = <$text> ) =~ /^\s$/ ) { }
+            while ($line = <$text>) { last if $line !~ /^\n$/; }
 
             # split page into two time columns per driver
             @col_pos = ();
@@ -160,7 +220,8 @@ sub race_lap_analysis
             }
 
             #print Dumper @col_pos;
-          TIMES: while (<$text>) {
+          TIMES:
+            while (<$text>) {
                 next TIMES  if (/^\n/);
                 next HEADER if (/^\f/);
                 $len = length;
@@ -168,15 +229,11 @@ sub race_lap_analysis
                 for my $col (@col_pos) {
                     $width = $col - $prev_col;
                     if ( $prev_col < $len ) {
-                        if (
-                            my %temp = 
-                                substr( $_, $prev_col, $width ) =~
-                                  /$laptime_re/g
-                          )
+                        if ( my %temp =
+                            substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
                         {
                             for my $k ( keys %temp ) {
-                                $recs{ $pos[$idx] }{ sprintf "%02d", $k } =
-                                  $temp{$k};
+                                $recs{ $pos[$idx] }{$k} = $temp{$k};
                             }
                         }
                         $prev_col = $col;
@@ -460,7 +517,7 @@ sub best_sector_times
 # DATABASE
 sub db_connect
 {
-    unless ($dbh) {
+    unless ($dbh and $dbh->ping) {
         $dbh = DBI->connect( $data_source, $user, $pwd )
           or die $DBI::errstr;
         $dbh->{AutoCommit} = 0;
@@ -484,9 +541,8 @@ sub db_insert_array
 
         # create insert sql statement with placeholders, using hash keys as
         # field names
-        my $stmt = "INSERT INTO $table (race_id, " . join ', ', @keys;
-        $stmt .= ") VALUES(?, " . join ', ', ('?') x scalar @keys;
-        $stmt .= ")";
+        my $stmt = sprintf "INSERT INTO %s (race_id, %s) VALUES (?, %s)",
+          $table, join( ', ', @keys ), join( ', ', ('?') x scalar @keys );
 
         #print $stmt, "\n";
         my $sth = $dbh->prepare($stmt);
@@ -495,7 +551,9 @@ sub db_insert_array
         my @cols;
 
         for my $hash (@$array_ref) {
-            map { push @{ $cols[$_] }, $hash->{ $keys[$_] } } ( 0 .. $#keys );
+            foreach ( 0 .. $#keys ) {
+                push @{ $cols[$_] }, $hash->{ $keys[$_] };
+            }
         }
 
         #print Dumper @cols;
@@ -505,6 +563,7 @@ sub db_insert_array
             $sth->bind_param_array( $_ + 2, \@{ $cols[$_] } );
         }
 
+        $dbh->do("DELETE FROM $table WHERE race_id = ?", {}, $race_id);
         $tuples = $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
         $dbh->commit;
     };
@@ -533,10 +592,9 @@ sub db_insert_hash
 
         # create insert sql statement with placeholders, using hash keys as
         # field names
-        my $stmt = "INSERT INTO $table (race_id, " . join ', ', @$keys;
-        $stmt .= ") VALUES(?, " . join ', ', ('?') x scalar @$keys;
-        $stmt .= ")";
-
+        my $stmt = sprintf "INSERT INTO %s (race_id, %s) VALUES (?, %s)",
+          $table, join( ', ', @$keys ), join( ', ', ('?') x scalar @$keys );
+        
         #print $stmt, "\n";
         my $sth = $dbh->prepare($stmt);
 
@@ -558,6 +616,7 @@ sub db_insert_hash
             $sth->bind_param_array( $_ + 2, \@{ $cols[$_] } );
         }
 
+        $dbh->do("DELETE FROM $table WHERE race_id = ?", undef, $race_id);
         $tuples = $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
         $dbh->commit;
     };
