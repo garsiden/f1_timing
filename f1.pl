@@ -122,6 +122,7 @@ for my $key ( keys %pdf ) {
     $recs = $href->{parser}($text);
     print Dumper $recs unless $quiet;
     $table = $href->{table};
+
     db_insert_array( $race_id, $table, $recs );
     close $text
       or die "bad PDFTOTEXT: $! $?";
@@ -259,39 +260,10 @@ sub provisional_starting_grid
 
 sub race_fastest_laps
 {
-    my $text = shift;
+    my @fields = qw( pos no driver nat entrant time on_lap gap kph time_of_day );
+    my $aref = classification( @_, @fields );
 
-    my $on_re = $lap_re;
-    my ( $pos, $no, $nat, $entrant, $laptime, $on, $gap, $kph, $timeofday );
-    my $regex = qr/($pos_re) +($no_re) +($driver_re) +($nat_re) +($entrant_re)/;
-    $regex .=
-      qr/($laptime_re) +($on_re) +($gap_re)? +($kph_re) +($timeofday_re)/;
-    my @recs;
-
-    while (<$text>) {
-        next unless /$regex/;
-        $pos       = $1;
-        $no        = $2;
-        $driver    = $3;
-        $nat       = $4;
-        $entrant   = $5;
-        $time      = $6;
-        $on        = $7;
-        $gap       = $8;
-        $kph       = $9;
-        $timeofday = $10;
-        $entrant =~ s/\s+$//;
-        push @recs,
-          {
-            'pos',     $pos,     'no',          $no,
-            'driver',  $driver,  'nat',         $nat,
-            'entrant', $entrant, 'time',        $time,
-            'on_lap',  $on,      'gap',         $gap,
-            'kph',     $kph,     'time_of_day', $timeofday,
-          };
-    }
-
-    return \@recs;
+    return $aref;
 }
 
 sub race_pit_stop_summary
@@ -332,40 +304,34 @@ sub race_pit_stop_summary
 }
 
 # SHARED
-sub practice_session_classification
+#
+# used by race fastest laps and practice session classification
+sub classification
 {
-    my $text = shift;
+    my $text   = shift;
+    my @fields = @_;
 
-    my ( $pos, $no, $nat, $entrant, $laptime, $on, $gap, $kph, $timeofday );
-    my $regex = qr/($pos_re) +($no_re) +($driver_re) +($nat_re) +($entrant_re)/;
+    my $regex =
+      qr/($pos_re) +($no_re) +($driver_re) +($nat_re) +($entrant_re?) +/;
     $regex .=
 qr/($laptime_re)? *($lap_re) *($gap_re)? *($kph_re)? *($timeofday_re)?\s+/;
     my @recs;
 
     while (<$text>) {
-        next unless /$regex/;
-        $pos       = $1;
-        $no        = $2;
-        $driver    = $3;
-        $nat       = $4;
-        $entrant   = $5;
-        $time      = $6;
-        $laps      = $7;
-        $gap       = $8;
-        $kph       = $9;
-        $timeofday = $10;
-        $entrant =~ s/\s+$//;
-        push @recs,
-          {
-            'pos',     $pos,     'no',          $no,
-            'driver',  $driver,  'nat',         $nat,
-            'entrant', $entrant, 'time',        $time,
-            'laps',    $laps,    'gap',         $gap,
-            'kph',     $kph,     'time_of_day', $timeofday,
-          };
+        my %hash;
+        next unless ( @hash{@fields} = /$regex/ );
+        push @recs, \%hash;
     }
 
     return \@recs;
+}
+
+sub practice_session_classification
+{
+    my @fields = qw( pos no driver nat entrant time laps gap kph time_of_day);
+    my $aref = classification( @_, @fields );
+
+    return $aref;
 }
 
 sub speed_trap
@@ -481,7 +447,7 @@ sub db_insert_array
         my $tuple_fetch = sub {
             my $href = pop @{$array_ref};
             return unless defined $href;
-            [ ( $race_id, @$href{@keys} ) ];
+            [ $race_id, @$href{@keys} ];
         };
 
         $dbh->do( "DELETE FROM $table WHERE race_id = ?", {}, $race_id );
@@ -494,6 +460,7 @@ sub db_insert_array
         $dbh->commit;
     };
     if ($@) {
+        print "Table: $table\n";
         print Dumper @tuple_status;
         warn "Transaction aborted because: $@";
         eval { $dbh->rollback };
