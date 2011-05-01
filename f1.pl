@@ -61,7 +61,10 @@ $dbh         = undef;
 
       #
       # Race
-      #   'aus-race-analysis' => \&race_lap_analysis,
+         'aus-race-analysis' => {
+             parser => \&race_lap_analysis,
+             table  => 'race_lap_analysis',
+         },
       #   'aus-race-grid' => \&provisional_starting_grid,
       #   'aus-race-laps' => \&race_fastest_laps,
       #   'aus-race-sectors' => \&race_best_sector_times,
@@ -183,8 +186,8 @@ sub race_lap_analysis
     my $text = shift;
 
     my $header_re  = qr/($pos_re)\s+(?:$driver_re)/;
-    my $laptime_re = qr/($lap_re)(?: *P)?\s+($timeofday_re|$laptime_re)\s?/;
-    my ( @col_pos, $width, $prev_col, $len, $idx, $line, %recs );
+    my $laptime_re = qr/($lap_re) *(P)?\s+($timeofday_re|$laptime_re)\s?/;
+    my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
 
   HEADER:
     while (<$text>) {
@@ -209,16 +212,27 @@ sub race_lap_analysis
                 for my $col (@col_pos) {
                     $width = $col - $prev_col;
                     if ( $prev_col < $len ) {
-                        if ( my %temp =
+                        while (
                             substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
                         {
-                            for my $k ( keys %temp ) {
-                                $recs{ $pos[$idx] }{$k} = $temp{$k};
-                            }
+                            my %temp;
+                            @temp{ 'no', 'lap', 'pit', 'time' } =
+                              ( $pos[$idx], $1, $2, $3 );
+                            push @recs, \%temp;
                         }
                         $prev_col = $col;
                         $idx++;
                     }
+#                       if ( my %temp =
+#                           substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
+#                       {
+#                           for my $k ( keys %temp ) {
+#                               $recs{ $pos[$idx] }{$k} = $temp{$k};
+#                           }
+#                       }
+#                       $prev_col = $col;
+#                       $idx++;
+#                   }
                 }
             }
         }
@@ -229,9 +243,10 @@ sub race_lap_analysis
     #    print $k, "\t", $recs{7}{$k}, "\n";
     #}
     #return;
-    my @fields = qw( no lap time );
-    my $table  = 'race_lap_analysis';
-    db_insert_hash( $race_id, $table, \@fields, \%recs );
+    #my @fields = qw( no lap time );
+    #my $table  = 'race_lap_analysis';
+    #db_insert_hash( $race_id, $table, \@fields, \%recs );
+    return \@recs;
 }
 
 sub provisional_starting_grid
@@ -539,57 +554,3 @@ sub db_insert_array
 
     return $tuples;
 }
-
-# add hash to database where hash key is a field value, and value is a hash
-# where key and value are both are fields values.
-sub db_insert_hash
-{
-    my ( $race_id, $table, $keys, $hash_ref ) = @_;
-
-    my $dbh = db_connect();
-    my ( $tuples, @tuple_status );
-
-    eval {
-
-        # create insert sql statement with placeholders, using hash keys as
-        # field names
-        my $stmt = sprintf "INSERT INTO %s (race_id, %s) VALUES (?, %s)",
-          $table, join( ', ', @$keys ), join( ', ', ('?') x scalar @$keys );
-
-        #print $stmt, "\n";
-        my $sth = $dbh->prepare($stmt);
-
-        # create an array for each field and fill from each record's hash value
-        my ( $idx, @cols );
-
-        for my $k ( keys %$hash_ref ) {
-            for my $k2 ( keys %{ $hash_ref->{$k} } ) {
-                foreach ( 0 .. 2 ) {
-                    push @{ $cols[$_] }, ( $k, $k2, $hash_ref->{$k}{$k2} )[$_];
-                }
-            }
-        }
-
-        #print Dumper @cols;
-        # bind parameter arrays to prepared SQL statement
-        $sth->bind_param_array( 1, $race_id );
-        foreach ( 0 .. $#$keys ) {
-            $sth->bind_param_array( $_ + 2, \@{ $cols[$_] } );
-        }
-
-        $dbh->do( "DELETE FROM $table WHERE race_id = ?", undef, $race_id );
-        $tuples = $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
-        $dbh->commit;
-    };
-    if ($@) {
-        print Dumper @tuple_status;
-        warn "Transaction aborted because: $@";
-        eval { $dbh->rollback };
-    }
-    else {
-        print "$tuples record(s) added to table $table\n";
-    }
-
-    return $tuples;
-}
-
