@@ -10,7 +10,7 @@ no strict 'vars';
 
 $data_dir = "$ENV{HOME}/Documents/F1/aus/";
 $race_id  = 'aus-2011';
-$quiet    = 0;
+$quiet    = 1;
 
 use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
 
@@ -49,12 +49,12 @@ $dbh         = undef;
     # Qualifying
     #   'aus-qualifying-sectors' => \&qualifying_session_best_sector_times,
     #   'aus-qualifying-speeds' => \&qualifying_session_maximum_speeds,
-    'aus-qualifying-times' => {
-        parser => \&qualifying_session_lap_times,
-        table  => 'qualifying_lap_time',
-      },
+#   'aus-qualifying-times' => {
+#       parser => \&qualifying_session_lap_times,
+#       table  => 'qualifying_lap_time',
+#     },
 
-      'aus-qualifying-trap'  => {
+       'aus-qualifying-trap'  => {
           parser => \&speed_trap,
           table  => 'qualifying_speed_trap',
       },
@@ -174,19 +174,7 @@ sub qualifying_session_lap_times
         }
     }
 
-    #print Dumper @recs;
-#   $table = 'qualifying_lap_time';
-#   db_insert_array( $race_id, $table, \@recs );
     return \@recs;
-}
-
-sub qualifying_speed_trap
-{
-    my $table = 'qualifying_speed_trap';
-    my $recs  = speed_trap(@_);
-
-    print Dumper $recs;
-    db_insert_array( $race_id, $table, $recs );
 }
 
 # RACE
@@ -525,26 +513,19 @@ sub db_insert_array
         #print $stmt, "\n";
         my $sth = $dbh->prepare($stmt);
 
-        # create an array for each field and fill from each record's hash value
-        my @cols;
-
-        for my $hash (@$array_ref) {
-            foreach ( 0 .. $#keys ) {
-                push @{ $cols[$_] }, $hash->{ $keys[$_] };
-            }
-        }
-
-        #print Dumper @cols;
-        # bind parameter arrays to prepared SQL statement
-        $col = 1;
-        $sth->bind_param_array( $col++, $race_id );
-
-        foreach (@cols) {
-            $sth->bind_param_array( $col++, $_ );
-        }
+        my $tuple_fetch = sub {
+            my $href = pop @{$array_ref};
+            return unless defined $href;
+            [ ( $race_id, @$href{@keys} ) ];
+        };
 
         $dbh->do( "DELETE FROM $table WHERE race_id = ?", {}, $race_id );
-        $tuples = $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
+        $tuples = $sth->execute_array(
+            {
+                ArrayTupleStatus => \@tuple_status,
+                ArrayTupleFetch  => $tuple_fetch,
+            }
+        );
         $dbh->commit;
     };
     if ($@) {
@@ -611,3 +592,4 @@ sub db_insert_hash
 
     return $tuples;
 }
+
