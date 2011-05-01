@@ -270,8 +270,7 @@ sub race_pit_stop_summary
 {
     my $text = shift;
 
-    my ( $no, $driver, $entrant, $lap, $timeofday, $stop, $duration,
-        $totaltime );
+    my @fields = qw( no driver entrant lap time_of_day stop duration total_time );
     my $stop_re      = '\d';
     my $duration_re  = '(?:\d+:)?\d\d\.\d\d\d';
     my $totaltime_re = $duration_re;
@@ -281,23 +280,9 @@ sub race_pit_stop_summary
     my @recs;
 
     while (<$text>) {
-        next unless /$regex/;
-        $no          = $1;
-        $driver      = $2;
-        $entrant     = $3;
-        $lap         = $4;
-        $time_of_day = $5;
-        $stop        = $6;
-        $duration    = $7;
-        $totaltime   = $8;
-        push @recs,
-          {
-            'no',          $no,          'driver',     $driver,
-            'entrant',     $entrant,     'lap',        $lap,
-            'time_of_day', $time_of_day, 'stop',       $stop,
-            'duration',    $duration,    'total_time', $totaltime,
-          };
-
+        my %hash;
+        next unless (@hash{ @fields} = /$regex/);
+        push @recs, \%hash;
     }
 
     return \@recs;
@@ -342,10 +327,11 @@ sub speed_trap
       qr/^ +($pos_re) +($no_re) +($driver_re) +($kph_re) +($timeofday_re)\s+/;
 
     my @recs;
-    my @keys = qw( pos no driver kph time_of_day);
+    my @fields = qw( pos no driver kph time_of_day);
+
     while (<$text>) {
         my %hash;
-        next unless ( @hash{@keys} = /$regex/ );
+        next unless ( @hash{@fields} = /$regex/ );
         push @recs, \%hash;
     }
 
