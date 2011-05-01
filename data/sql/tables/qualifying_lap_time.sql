@@ -4,8 +4,8 @@ CREATE TABLE qualifying_lap_time
 (
     race_id CHAR(8) NOT NULL,
     no INTEGER NOT NULL,
---    pit CHAR(1),
     lap INTEGER NOT NULL,
+    pit CHAR(1),
     time TIME NOT NULL,
     PRIMARY KEY (race_id, no, lap),
     FOREIGN KEY (race_id) REFERENCES race(id)
