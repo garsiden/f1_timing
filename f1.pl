@@ -44,47 +44,72 @@ $dbh         = undef;
 %pdf = (
 
     # Practice
-    #'aus-session1-classification' => \&first_practice_session_classification,
+    'aus-session1-classification' => {
+        parser => \&practice_session_classification,
+        table  => 'practice_1_classification',
+    },
 
     # Qualifying
-    #   'aus-qualifying-sectors' => \&qualifying_session_best_sector_times,
-    #   'aus-qualifying-speeds' => \&qualifying_session_maximum_speeds,
-#   'aus-qualifying-times' => {
-#       parser => \&qualifying_session_lap_times,
-#       table  => 'qualifying_lap_time',
-#     },
+    'aus-qualifying-sectors' => {
+        parser => \&best_sector_times,
+        table  => 'qualifying_best_sector_time',
+    },
+    'aus-qualifying-speeds' => {
+        parser => \&maximum_speeds,
+        table  => 'qualifying_maximum_speed',
+    },
+    'aus-qualifying-times' => {
+        parser => \&qualifying_session_lap_times,
+        table  => 'qualifying_lap_time',
+    },
+    'aus-qualifying-trap' => {
+        parser => \&speed_trap,
+        table  => 'qualifying_speed_trap',
+    },
 
-       'aus-qualifying-trap'  => {
-          parser => \&speed_trap,
-          table  => 'qualifying_speed_trap',
-      },
+    # Race
+    'aus-race-analysis' => {
+        parser => \&race_lap_analysis,
+        table  => 'race_lap_analysis',
+    },
+    'aus-race-grid' => {
+        parser => \&provisional_starting_grid,
+        table  => 'race_grid',
+    },
+    'aus-race-laps' => {
+        parser => \&race_fastest_laps,
+        table  => 'race_fastest_lap',
+    },
+    'aus-race-sectors' => {
+        parser => \&best_sector_times,
+        table  => 'race_best_sector_time',
+    },
+    'aus-race-speeds' => {
+        parser => \&maximum_speeds,
+        table  => 'race_maximum_speed',
+    },
+    'aus-race-summary' => {
+        parser => \&race_pit_stop_summary,
+        table  => 'race_pit_stop_summary',
+    },
+    'aus-race-trap' => {
+        parser => \&speed_trap,
+        table  => 'race_speed_trap',
+    },
 
-      #
-      # Race
-         'aus-race-analysis' => {
-             parser => \&race_lap_analysis,
-             table  => 'race_lap_analysis',
-         },
-      #   'aus-race-grid' => \&provisional_starting_grid,
-      #   'aus-race-laps' => \&race_fastest_laps,
-      #   'aus-race-sectors' => \&race_best_sector_times,
-      #   'aus-race-speeds' => \&race_maximum_speeds,
-      #   'aus-race-summary' => \&race_pit_stop_summary,
-      #   'aus-race-trap' => \&race_speed_trap,
-
-      # TODO
-      #'aus-qualifying-classification' => \&qualifying_session_classification,
-      #
-      #'aus-session1-times' => first_practice_session_lap_times,
-      #'aus-session2-classification' => second_practice_session_classification,
-      #'aus-session2-times' => second_practice_session_lap_times,
-      #'aus-session2-classification' => third_practice_session_classification,
-      #'aus-session3-times' => third_practice_session_lap_times,
-      #
-      # OTHERS
-      # 'aus-race-chart'
-      # 'aus-race-classification'
-      # 'aus-race-history'
+    # TODO
+    #'aus-qualifying-classification' => \&qualifying_session_classification,
+    #
+    #'aus-session1-times' => first_practice_session_lap_times,
+    #'aus-session2-classification' => second_practice_session_classification,
+    #'aus-session2-times' => second_practice_session_lap_times,
+    #'aus-session2-classification' => third_practice_session_classification,
+    #'aus-session3-times' => third_practice_session_lap_times,
+    #
+    # OTHERS
+    # 'aus-race-chart'
+    # 'aus-race-classification'
+    # 'aus-race-history'
 );
 
 for my $key ( keys %pdf ) {
@@ -103,34 +128,8 @@ for my $key ( keys %pdf ) {
 }
 
 # PRACTICE
-sub first_practice_session_classification
-{
-    my $table = 'practice_1_classification';
-    my $recs  = practice_session_classification(@_);
-
-    print Dumper $recs;
-    db_insert_array( $race_id, $table, $recs );
-}
 
 # QUALIFYING
-sub qualifying_session_best_sector_times
-{
-    my $table = 'qualifying_best_sector_time';
-    my $recs  = best_sector_times(@_);
-
-    #print Dumper $recs;
-    db_insert_array( $race_id, $table, $recs );
-}
-
-sub qualifying_session_maximum_speeds
-{
-    my $table = 'qualifying_maximum_speed';
-    my $recs  = maximum_speeds(@_);
-
-    #print Dumper $recs;
-    db_insert_array( $race_id, $table, $recs );
-}
-
 sub qualifying_session_lap_times
 {
     my $text = shift;
@@ -223,29 +222,12 @@ sub race_lap_analysis
                         $prev_col = $col;
                         $idx++;
                     }
-#                       if ( my %temp =
-#                           substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
-#                       {
-#                           for my $k ( keys %temp ) {
-#                               $recs{ $pos[$idx] }{$k} = $temp{$k};
-#                           }
-#                       }
-#                       $prev_col = $col;
-#                       $idx++;
-#                   }
                 }
             }
         }
 
     }
 
-    #for my $k (sort keys %{$recs{'7'}}) {
-    #    print $k, "\t", $recs{7}{$k}, "\n";
-    #}
-    #return;
-    #my @fields = qw( no lap time );
-    #my $table  = 'race_lap_analysis';
-    #db_insert_hash( $race_id, $table, \@fields, \%recs );
     return \@recs;
 }
 
@@ -272,8 +254,7 @@ sub provisional_starting_grid
         }
     }
 
-    #print Dumper \@recs;
-    db_insert_array( $race_id, 'race_grid', \@recs );
+    return \@recs;
 }
 
 sub race_fastest_laps
@@ -310,18 +291,7 @@ sub race_fastest_laps
           };
     }
 
-    #print Dumper \@recs;
-    $table = 'race_fastest_lap';
-    db_insert_array( $race_id, $table, \@recs );
-}
-
-sub race_best_sector_times
-{
-    my $table = 'race_best_sector_time';
-    my $recs  = best_sector_times(@_);
-
-    # print Dumper $recs;
-    db_insert_array( $race_id, $table, $recs );
+    return \@recs;
 }
 
 sub race_pit_stop_summary
@@ -358,27 +328,7 @@ sub race_pit_stop_summary
 
     }
 
-    #print Dumper \@recs;
-    $table = 'race_pit_stop_summary';
-    db_insert_array( $race_id, $table, \@recs );
-}
-
-sub race_maximum_speeds
-{
-    my $table = 'race_maximum_speed';
-    my $recs  = maximum_speeds(@_);
-
-    #print Dumper $speeds;
-    db_insert_array( $race_id, $table, $recs );
-}
-
-sub race_speed_trap
-{
-    my $table = 'race_speed_trap';
-    my $recs  = speed_trap(@_);
-
-    #print Dumper $recs;
-    db_insert_array( $race_id, $table, $recs );
+    return \@recs;
 }
 
 # SHARED
