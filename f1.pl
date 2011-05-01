@@ -9,6 +9,7 @@ no strict 'vars';
 # parse FIA F1 timing PDFs
 
 $data_dir = "$ENV{HOME}/Documents/F1/aus/";
+$race_id = 'aus-2011';
 
 use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
 
@@ -48,7 +49,7 @@ $dbh         = undef;
     #   'aus-qualifying-sectors' => \&qualifying_session_best_sector_times,
     #   'aus-qualifying-speeds' => \&qualifying_session_maximum_speeds,
     'aus-qualifying-times' => \&qualifying_session_lap_times,
-    #   'aus-qualifying-trap' => \&qualifying_speed_trap,
+       'aus-qualifying-trap' => \&qualifying_speed_trap,
     #
     # Race
     #   'aus-race-analysis' => \&race_lap_analysis,
@@ -61,7 +62,6 @@ $dbh         = undef;
 
     # TODO
     #'aus-qualifying-classification' => \&qualifying_session_classification,
-    #'aus-qualifying-times' => \&qualifying_session_lap_times,
     #
     #'aus-session1-times' => first_practice_session_lap_times,
     #'aus-session2-classification' => second_practice_session_classification,
@@ -90,40 +90,29 @@ for my $key ( keys %pdf ) {
 # PRACTICE
 sub first_practice_session_classification
 {
-    my $text = shift;
-
-    my $recs = practice_session_classification($text);
+    my $table = 'practice_1_classification';
+    my $recs = practice_session_classification(@_);
 
     print Dumper $recs;
-    db_insert_array( 'aus-2011', 'practice_1_classification', $recs );
+    db_insert_array($race_id, $table, $recs );
 }
 
 # QUALIFYING
 sub qualifying_session_best_sector_times
 {
-    my $text = shift;
-
     my $table   = 'qualifying_best_sector_time';
-    my $race_id = 'aus-2011';
-
-    my $recs = best_sector_times($text);
+    my $recs = best_sector_times(@_);
 
     #print Dumper $recs;
-    # add to database
     db_insert_array( $race_id, $table, $recs );
 }
 
 sub qualifying_session_maximum_speeds
 {
-    my $text = shift;
-
     my $table   = 'qualifying_maximum_speed';
-    my $race_id = 'aus-2011';
-    my $recs  = maximum_speeds($text);
+    my $recs  = maximum_speeds(@_);
 
     #print Dumper $recs;
-
-    # add to database
     db_insert_array( $race_id, $table, $recs );
 }
 
@@ -132,8 +121,8 @@ sub qualifying_session_lap_times
     my $text = shift;
 
     my $header_re  = qr/($no_re)\s+(?:$driver_re)/;
-    my $laptime_re = qr/($lap_re)(?: *P)?\s+($timeofday_re|$laptime_re)\s?/;
-    my ( @col_pos, $width, $prev_col, $len, $idx, $line, %recs );
+    my $laptime_re = qr/($lap_re) *(P)? +($timeofday_re|$laptime_re)\s?/;
+    my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
 
   HEADER:
     while (<$text>) {
@@ -149,20 +138,21 @@ sub qualifying_session_lap_times
 
           TIMES:
             while (<$text>) {
-                redo HEADER if /$header_re/;
                 next HEADER if /^\f/;
+                redo HEADER if /$header_re/;
                 next TIMES  if /^\n/;
                 $len = length;
                 $prev_col = $idx = 0;
                 for my $col (@col_pos) {
                     $width = $col - $prev_col;
                     if ( $prev_col < $len ) {
-                        if ( my %temp =
+                        while (
                             substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
                         {
-                            for my $k ( keys %temp ) {
-                                $recs{ $pos[$idx] }{$k} = $temp{$k};
-                            }
+                            my %temp;
+                            @temp{ 'no', 'lap', 'pit', 'time' } =
+                              ( $pos[$idx], $1, $2, $3 );
+                            push @recs, \%temp;
                         }
                         $prev_col = $col;
                         $idx++;
@@ -170,30 +160,19 @@ sub qualifying_session_lap_times
                 }
             }
         }
-
     }
 
-    #for my $k (sort keys %{$recs{'7'}}) {
-    #    print $k, "\t", $recs{7}{$k}, "\n";
-    #}
-    #return;
-    my @fields = qw( no lap time );
-    db_insert_hash( 'aus-2011', 'qualifying_lap_time', \@fields, \%recs );
-    #print Dumper %recs;
-    for my $k ( sort { $a <=> $b } ( keys %{ $recs{4} } ) ) {
-        print $k, "\t", $recs{4}{$k}, "\n";
-    }
+    #print Dumper @recs;
+    $table = 'qualifying_lap_time';
+    db_insert_array( $race_id, $table, \@recs );
 }
 
 sub qualifying_speed_trap
 {
-    my $text = shift;
-
-    my $recs = speed_trap($text);
-
-    #print Dumper $speed;
-    my $race_id = 'aus-2011';
     my $table   = 'qualifying_speed_trap';
+    my $recs = speed_trap(@_);
+
+    print Dumper $recs;
     db_insert_array( $race_id, $table, $recs );
 }
 
@@ -250,7 +229,8 @@ sub race_lap_analysis
     #}
     #return;
     my @fields = qw( no lap time );
-    db_insert_hash( 'aus-2011', 'race_lap_analysis', \@fields, \%recs );
+    my $table ='race_lap_analysis'; 
+    db_insert_hash( $race_id, $table, \@fields, \%recs );
 }
 
 sub provisional_starting_grid
@@ -277,7 +257,7 @@ sub provisional_starting_grid
     }
 
     #print Dumper \@recs;
-    db_insert_array( 'aus-2011', 'race_grid', \@recs );
+    db_insert_array( $race_id, 'race_grid', \@recs );
 }
 
 sub race_fastest_laps
@@ -315,20 +295,16 @@ sub race_fastest_laps
     }
 
     #print Dumper \@recs;
-    db_insert_array( 'aus-2011', 'race_fastest_lap', \@recs );
+    $table ='race_fastest_lap';
+    db_insert_array( $race_id, $table, \@recs );
 }
 
 sub race_best_sector_times
 {
-    my $text = shift;
-
     my $table   = 'race_best_sector_time';
-    my $race_id = 'aus-2011';
-
-    $recs = best_sector_times($text);
+    my $recs = best_sector_times(@_);
 
     # print Dumper $recs;
-    # add to database
     db_insert_array( $race_id, $table, $recs );
 }
 
@@ -367,32 +343,25 @@ sub race_pit_stop_summary
     }
 
     #print Dumper \@recs;
-    db_insert_array( 'aus-2011', 'race_pit_stop_summary', \@recs );
+    $table ='race_pit_stop_summary'; 
+    db_insert_array( $race_id ,$table, \@recs );
 }
 
 sub race_maximum_speeds
 {
-    my $text = shift;
-
     my $table   = 'race_maximum_speed';
-    my $race_id = 'aus-2011';
-    my $recs  = maximum_speeds($text);
+    my $recs  = maximum_speeds(@_);
 
     #print Dumper $speeds;
-
-    # add to database
     db_insert_array( $race_id, $table, $recs );
 }
 
 sub race_speed_trap
 {
-    my $text = shift;
-
-    my $recs = speed_trap($text);
+    my $table   = 'race_speed_trap';
+    my $recs = speed_trap(@_);
 
     #print Dumper $recs;
-    my $race_id = 'aus-2011';
-    my $table   = 'race_speed_trap';
     db_insert_array( $race_id, $table, $recs );
 }
 
@@ -441,15 +410,11 @@ sub speed_trap
       qr/^ +($pos_re) +($no_re) +($driver_re) +($kph_re) +($timeofday_re)\s+/;
 
     my @recs;
-
+    my @keys = qw( pos no driver kph time_of_day);
     while (<$text>) {
-        next unless ( my ( $pos, $no, $driver, $kph, $timeofday ) = /$regex/ );
-        push @recs,
-          {
-            'pos',         $pos,    'no',  $no,
-            'driver',      $driver, 'kph', $kph,
-            'time_of_day', $timeofday
-          };
+        my %hash;
+        next unless ( @hash{ @keys } =  /$regex/ );
+        push @recs, \%hash;
     }
 
     return \@recs;
@@ -462,9 +427,10 @@ sub maximum_speeds
     my $regex  = qr/\G($driver_re) +($kph_re)\s+/;
     my $num_re = qr/ ($no_re) /;
 
-    my ( $line, $driver, $time, $pos, $n, $speedtrap, @recs);
+    my ( $line, $driver, $time, $pos, $n, $speedtrap, @recs );
 
-  LOOP: while ( $line = <$text> ) {
+  LOOP:
+    while ( $line = <$text> ) {
         pos $line = 0;
         next unless ( $line =~ /$num_re/g );
         $pos       = $1;
@@ -481,7 +447,6 @@ sub maximum_speeds
         }
     }
 
-    #print Dumper \@recs;
     return \@recs;
 }
 
@@ -494,7 +459,8 @@ sub best_sector_times
 
     my ( $line, $driver, $time, $pos, $n, $sector, @recs );
 
-  LOOP: while ( $line = <$text> ) {
+  LOOP:
+    while ( $line = <$text> ) {
         pos $line = 0;
         next unless ( $line =~ /$num_re/g );
         $pos    = $1;
@@ -510,7 +476,6 @@ sub best_sector_times
         }
     }
 
-    #print Dumper \@recs;
     return \@recs;
 }
 
@@ -558,12 +523,14 @@ sub db_insert_array
 
         #print Dumper @cols;
         # bind parameter arrays to prepared SQL statement
-        $sth->bind_param_array( 1, $race_id );
-        foreach ( 0 .. $#keys ) {
-            $sth->bind_param_array( $_ + 2, \@{ $cols[$_] } );
+        $col = 1;
+        $sth->bind_param_array( $col++, $race_id );
+
+        foreach (@cols) {
+            $sth->bind_param_array( $col++, $_ );
         }
 
-        $dbh->do("DELETE FROM $table WHERE race_id = ?", {}, $race_id);
+        $dbh->do( "DELETE FROM $table WHERE race_id = ?", {}, $race_id );
         $tuples = $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
         $dbh->commit;
     };
