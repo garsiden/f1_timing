@@ -59,7 +59,7 @@ $dbh         = undef;
         table  => 'qualifying_maximum_speed',
     },
     'aus-qualifying-times' => {
-        parser => \&qualifying_session_lap_times,
+        parser => \&time_sheet,
         table  => 'qualifying_lap_time',
     },
     'aus-qualifying-trap' => {
@@ -69,7 +69,7 @@ $dbh         = undef;
 
     # Race
     'aus-race-analysis' => {
-        parser => \&race_lap_analysis,
+        parser => \&time_sheet,
         table  => 'race_lap_analysis',
     },
     'aus-race-grid' => {
@@ -113,8 +113,8 @@ $dbh         = undef;
 );
 
 for my $key ( keys %pdf ) {
+    #my $key = 'aus-qualifying-times';
     my $pdf = $data_dir . $key;
-
     # use to arg open method to get shell redirection to stdout
     open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
       or die "unable to open PDFTOTEXT: $!";
@@ -131,107 +131,8 @@ for my $key ( keys %pdf ) {
 # PRACTICE
 
 # QUALIFYING
-sub qualifying_session_lap_times
-{
-    my $text = shift;
-
-    my $header_re  = qr/($no_re)\s+(?:$driver_re)/;
-    my $laptime_re = qr/($lap_re) *(P)? +($timeofday_re|$laptime_re)\s?/;
-    my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
-
-  HEADER:
-    while (<$text>) {
-        if ( my @pos = /$header_re/g ) {
-
-            # skip empty lines
-            do { $line = <$text> } until $line !~ /^\n$/;
-
-            # split page into two time columns per driver
-            while ( $line =~ m/(NO +TIME\s+?){2}/g ) {
-                push @col_pos, pos $line;
-            }
-
-          TIMES:
-            while (<$text>) {
-                next HEADER if /^\f/;
-                redo HEADER if /$header_re/;
-                next TIMES  if /^\n/;
-                $len = length;
-                $prev_col = $idx = 0;
-                for my $col (@col_pos) {
-                    $width = $col - $prev_col;
-                    if ( $prev_col < $len ) {
-                        while (
-                            substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
-                        {
-                            my %temp;
-                            @temp{ 'no', 'lap', 'pit', 'time' } =
-                              ( $pos[$idx], $1, $2, $3 );
-                            push @recs, \%temp;
-                        }
-                        $prev_col = $col;
-                        $idx++;
-                    }
-                }
-            }
-        }
-    }
-
-    return \@recs;
-}
 
 # RACE
-sub race_lap_analysis
-{
-    my $text = shift;
-
-    my $header_re  = qr/($pos_re)\s+(?:$driver_re)/;
-    my $laptime_re = qr/($lap_re) *(P)?\s+($timeofday_re|$laptime_re)\s?/;
-    my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
-
-  HEADER:
-    while (<$text>) {
-        if ( my @pos = /$header_re/g ) {
-
-            # skip empty lines
-            while ( $line = <$text> ) { last if $line !~ /^\n$/; }
-
-            # split page into two time columns per driver
-            @col_pos = ();
-            while ( $line =~ m/(LAP\s+TIME\s+?){2}/g ) {
-                push @col_pos, pos $line;
-            }
-
-            #print Dumper @col_pos;
-          TIMES:
-            while (<$text>) {
-                next TIMES  if (/^\n/);
-                next HEADER if (/^\f/);
-                $len = length;
-                $prev_col = $idx = 0;
-                for my $col (@col_pos) {
-                    $width = $col - $prev_col;
-                    if ( $prev_col < $len ) {
-                        while (
-                            substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
-                        {
-                            my %temp;
-                            @temp{ 'no', 'lap', 'pit', 'time' } =
-                              ( $pos[$idx], $1, $2, $3 );
-                            push @recs, \%temp;
-                        }
-                        $prev_col = $col;
-                        $idx++;
-                    }
-                }
-            }
-        }
-
-    }
-
-    return \@recs;
-}
-
 sub provisional_starting_grid
 {
     my $text = shift;
@@ -290,6 +191,57 @@ sub race_pit_stop_summary
 
 # SHARED
 #
+# 3 sets of times across a page in two columns per driver
+# used by race lap analysis and qualifying lap times
+sub time_sheet
+{
+    my $text = shift;
+
+    my $header_re  = qr/($no_re)\s+(?:$driver_re)/;
+    my $laptime_re = qr/($lap_re) *(P)? +($timeofday_re|$laptime_re)\s?/;
+    my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
+    my @fields = qw(no lap pit time);
+
+  HEADER:
+    while (<$text>) {
+        if ( my @pos = /$header_re/g ) {
+
+            # skip empty lines
+            do { $line = <$text> } until $line !~ /^\n$/;
+
+            # split page into two time columns per driver
+            while ( $line =~ m/((?:NO|LAP) +TIME\s+?){2}/g ) {
+                push @col_pos, pos $line;
+            }
+
+          TIMES:
+            while (<$text>) {
+                next HEADER if /^\f/;
+                redo HEADER if /$header_re/;
+                next TIMES  if /^\n/;
+                $len = length;
+                $prev_col = $idx = 0;
+                for my $col (@col_pos) {
+                    $width = $col - $prev_col;
+                    if ( $prev_col < $len ) {
+                        while (
+                            substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
+                        {
+                            my %temp;
+                            @temp{ @fields } = ( $pos[$idx], $1, $2, $3 );
+                            push @recs, \%temp;
+                        }
+                        $prev_col = $col;
+                        $idx++;
+                    }
+                }
+            }
+        }
+    }
+
+    return \@recs;
+}
+
 # used by race fastest laps and practice session classification
 sub classification
 {
@@ -314,9 +266,9 @@ qr/($laptime_re)? *($lap_re) *($gap_re)? *($kph_re)? *($timeofday_re)?\s+/;
 sub practice_session_classification
 {
     my @fields = qw( pos no driver nat entrant time laps gap kph time_of_day);
-    my $aref = classification( @_, @fields );
+    my $recs = classification( @_, @fields );
 
-    return $aref;
+    return $recs;
 }
 
 sub speed_trap
