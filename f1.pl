@@ -1,5 +1,8 @@
 #! /usr/bin/env perl
 use DBI;
+use LWP::Simple;
+use HTML::LinkExtor;
+use Getopt::Long;
 use Data::Dumper;
 
 use strict;
@@ -9,13 +12,42 @@ no strict 'vars';
 # parse FIA F1 timing PDFs
 
 $data_dir = "$ENV{HOME}/Documents/F1/aus/";
-$race_id  = 'aus-2011';
-$quiet    = 1;
+$docs_dir = "$ENV{HOME}/Documents/F1/";
+$timings_base =
+  'http://fialive.fiacommunications.com/' . 'en-GB/mediacentre/f1_media/Pages/';
+$timings_page = 'timing.aspx';
+
+$race_id = 'aus-2011';
+$quiet   = 1;
 
 use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
 
-# shared regexs
-$name_re       = q#[A-Z]\. [A-Z '-]+?#;
+$database = q{};
+$filename = q{};
+$help     = 0;
+$man      = 0;
+$versions = 0;
+$update   = 0;
+$lists    = 0;
+$test     = 0;
+$timings  = q{};
+
+Getopt::Long::Configure qw( no_auto_abbrev bundling);
+GetOptions(
+    'help'       => \$help,
+    'man'        => \$man,
+    'database=s' => \$database,
+    'versions'   => \$versions,
+    'update:i'   => \$update,
+    'u:i'        => \$update,
+    'timings:s'  => \$timings,
+    't:s'        => \$timings,
+    'test'       => \$test,
+    ;
+  )
+
+  # shared regexs
+  $name_re     = q#[A-Z]\. [A-Z '-]+?#;
 $driver_re     = $name_re;
 $laptime_re    = '\d+:\d\d\.\d\d\d';
 $sectortime_re = '\d\d\.\d\d\d';
@@ -36,11 +68,25 @@ $pwd         = q{};
 $user        = q{};
 $dbh         = undef;
 
-#$pwd = 'maggio26';
-#$pwd =~ tr/a-mA-Mn-zN-Z/n-zN-Za-mA-M/;
-#print $pwd, "/n/n";
+# Process command-line arguments
+if ( defined $pause ) { $pause = 1 unless $pause; }
 
-# map PDFs to sub-routines
+unless ($test) {
+
+}
+else {
+    print 'Running test...', "\n";
+}
+
+if ( defined $update ) {
+    update_db();
+}
+
+if ( defined $timings ) {
+    get_doc_links( $timings_base, $timings_page );
+}
+
+# map PDFs to parsing sub-routines and database tables
 %pdf = (
 
     # Practice
@@ -112,20 +158,26 @@ $dbh         = undef;
     # 'aus-race-history'
 );
 
-for my $key ( keys %pdf ) {
-    #my $key = 'aus-qualifying-times';
-    my $pdf = $data_dir . $key;
-    # use to arg open method to get shell redirection to stdout
-    open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
-      or die "unable to open PDFTOTEXT: $!";
-    $href = $pdf{$key};
-    $recs = $href->{parser}($text);
-    print Dumper $recs unless $quiet;
-    $table = $href->{table};
+sub update_db
+{
 
-    db_insert_array( $race_id, $table, $recs );
-    close $text
-      or die "bad PDFTOTEXT: $! $?";
+    for my $key ( keys %pdf ) {
+
+        #my $key = 'aus-qualifying-times';
+        my $pdf = $data_dir . $key;
+
+        # use to arg open method to get shell redirection to stdout
+        open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
+          or die "unable to open PDFTOTEXT: $!";
+        $href = $pdf{$key};
+        $recs = $href->{parser}($text);
+        print Dumper $recs unless $quiet;
+        $table = $href->{table};
+
+        db_insert_array( $race_id, $table, $recs );
+        close $text
+          or die "bad PDFTOTEXT: $! $?";
+    }
 }
 
 # PRACTICE
@@ -161,7 +213,8 @@ sub provisional_starting_grid
 
 sub race_fastest_laps
 {
-    my @fields = qw( pos no driver nat entrant time on_lap gap kph time_of_day );
+    my @fields =
+      qw( pos no driver nat entrant time on_lap gap kph time_of_day );
     my $aref = classification( @_, @fields );
 
     return $aref;
@@ -171,7 +224,8 @@ sub race_pit_stop_summary
 {
     my $text = shift;
 
-    my @fields = qw( no driver entrant lap time_of_day stop duration total_time );
+    my @fields =
+      qw( no driver entrant lap time_of_day stop duration total_time );
     my $stop_re      = '\d';
     my $duration_re  = '(?:\d+:)?\d\d\.\d\d\d';
     my $totaltime_re = $duration_re;
@@ -182,7 +236,7 @@ sub race_pit_stop_summary
 
     while (<$text>) {
         my %hash;
-        next unless (@hash{ @fields} = /$regex/);
+        next unless ( @hash{@fields} = /$regex/ );
         push @recs, \%hash;
     }
 
@@ -228,7 +282,7 @@ sub time_sheet
                             substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
                         {
                             my %temp;
-                            @temp{ @fields } = ( $pos[$idx], $1, $2, $3 );
+                            @temp{@fields} = ( $pos[$idx], $1, $2, $3 );
                             push @recs, \%temp;
                         }
                         $prev_col = $col;
@@ -408,4 +462,37 @@ sub db_insert_array
     }
 
     return $tuples;
+}
+
+sub get_doc_links
+{
+    my ( $base, $page ) = @_;
+    my $url = $base . $page;
+    my $content;
+
+    unless ( defined( $content = get $url) ) {
+        die "unable to get $url";
+    }
+
+    my $parser = HTML::LinkExtor->new;
+    $parser->parse($content);
+    my @links = $parser->links;
+
+    my @docs = ();
+
+    foreach $linkarray (@links) {
+        ( $tag, %attr ) = @$linkarray;
+        next unless $tag eq 'a';
+        next unless $attr{href} =~ /(^.*\.pdf$)/;
+        push @docs, $1;
+    }
+
+    print join( "\n", @docs ), "\n";
+
+    my $test_dir = $docs_dir . 'test/';
+    my $src      = $base . $docs[0];
+    ( my $output_file ) = $src =~ /([a-z123-]+.pdf$)/;
+    print "$output_file\t$src\n";
+
+    getstore( $src, $test_dir . $output_file );
 }
