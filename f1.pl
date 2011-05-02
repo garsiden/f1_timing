@@ -4,6 +4,7 @@ use LWP::Simple;
 use HTML::LinkExtor;
 use Getopt::Long;
 use Data::Dumper;
+use YAML qw( Load );
 
 use strict;
 use warnings;
@@ -23,14 +24,12 @@ $quiet   = 1;
 use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
 
 $database = q{};
-$filename = q{};
 $help     = 0;
 $man      = 0;
 $versions = 0;
 $update   = 0;
-$lists    = 0;
 $test     = 0;
-$timings  = q{};
+$timings  = 0;
 
 Getopt::Long::Configure qw( no_auto_abbrev bundling);
 GetOptions(
@@ -40,14 +39,13 @@ GetOptions(
     'versions'   => \$versions,
     'update:i'   => \$update,
     'u:i'        => \$update,
-    'timings:s'  => \$timings,
-    't:s'        => \$timings,
+    'timings'  => \$timings,
+    't'        => \$timings,
     'test'       => \$test,
-    ;
-  )
+  );
 
   # shared regexs
-  $name_re     = q#[A-Z]\. [A-Z '-]+?#;
+$name_re       = q#[A-Z]\. [A-Z '-]+?#;
 $driver_re     = $name_re;
 $laptime_re    = '\d+:\d\d\.\d\d\d';
 $sectortime_re = '\d\d\.\d\d\d';
@@ -71,18 +69,33 @@ $dbh         = undef;
 # Process command-line arguments
 if ( defined $pause ) { $pause = 1 unless $pause; }
 
-unless ($test) {
-
-}
-else {
+if ($test) {
+    no strict 'refs';
     print 'Running test...', "\n";
+    my $pdf = $data_dir . 'aus-session1-classification';
+
+    # use to arg open method to get shell redirection to stdout
+    open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
+        or die "unable to open PDFTOTEXT: $!";
+    $parser = 'practice_session_classification';
+    $recs = &$parser($text);
+    #print Dumper $recs;
+
+    close $text
+        or die "bad PDFTOTEXT: $! $?";
+
+    local $/ = undef;
+
+    my $data = <DATA>;
+    my $hashref = Load($data);
+    print Dumper $hashref;
 }
 
 if ( defined $update ) {
     update_db();
 }
 
-if ( defined $timings ) {
+if ( $timings ) {
     get_doc_links( $timings_base, $timings_page );
 }
 
@@ -496,3 +509,11 @@ sub get_doc_links
 
     getstore( $src, $test_dir . $output_file );
 }
+
+__DATA__
+aus-qualifying-sectors:
+    parser: best_sector_times
+    table: qualifying_beast_sector_time
+aus-qualifying-speeds:
+    parser: maximum_speeds
+    table: qualifying_maximum_speed
