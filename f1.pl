@@ -21,7 +21,6 @@ $docs_dir = "$ENV{HOME}/Documents/F1/";
 $timing_base = 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
 $timing_page = 'timing.aspx';
 
-$race_id = 'aus-2011';
 $quiet   = 1;
 
 use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
@@ -29,8 +28,7 @@ use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
 $database = q{};
 $help     = 0;
 $man      = 0;
-$versions = 0;
-$update   = 0;
+$update   = undef;
 $test     = 0;
 $timing   = undef;
 
@@ -39,17 +37,16 @@ GetOptions(
     'help'       => \$help,
     'man'        => \$man,
     'database=s' => \$database,
-    'versions'   => \$versions,
-    'update:i'   => \$update,
-    'u:i'        => \$update,
+    'update=s'   => \$update,
+    'u=s'        => \$update,
     'timing:s'   => \$timing,
     't'          => \$timing,
     'test'       => \$test,
 );
 
 # shared regexs
-$name_re       = q#[A-Z]\. [A-Z '-]+?#;
-$driver_re     = $name_re;
+$driver_re     = q#[A-Z]\. [A-Z '-]+?#;
+#$name_re       = $driver_re;
 $laptime_re    = '\d+:\d\d\.\d\d\d';
 $sectortime_re = '\d\d\.\d\d\d';
 $maxspeed_re   = '\d\d\d\.\d{1,3}';
@@ -143,7 +140,7 @@ sub yaml_hash
 {
     no strict 'refs';
     print 'Running test...', "\n";
-    my $pdf = $data_dir . 'aus-session1-classification';
+    my $pdf = $data_dir . 'session1-classification';
 
     open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
       or die "unable to open PDFTOTEXT: $!";
@@ -158,98 +155,115 @@ sub yaml_hash
     print Dumper $hashref;
 }
 
-if ($update) {
-    update_db();
-}
-
-#if ( $timing ) {
-#    get_doc_links( $timing_base, $timing_page );
-#}
 
 # map PDFs to parsing sub-routines and database tables
 %pdf = (
 
     # Practice
-    'aus-session1-classification' => {
+    'session1-classification' => {
         parser => \&practice_session_classification,
         table  => 'practice_1_classification',
     },
 
     # Qualifying
-    'aus-qualifying-sectors' => {
+    'qualifying-sectors' => {
         parser => \&best_sector_times,
         table  => 'qualifying_best_sector_time',
     },
-    'aus-qualifying-speeds' => {
+    'qualifying-speeds' => {
         parser => \&maximum_speeds,
         table  => 'qualifying_maximum_speed',
     },
-    'aus-qualifying-times' => {
+    'qualifying-times' => {
         parser => \&time_sheet,
         table  => 'qualifying_lap_time',
     },
-    'aus-qualifying-trap' => {
+    'qualifying-trap' => {
         parser => \&speed_trap,
         table  => 'qualifying_speed_trap',
     },
 
     # Race
-    'aus-race-analysis' => {
+    'race-analysis' => {
         parser => \&time_sheet,
         table  => 'race_lap_analysis',
     },
-    'aus-race-grid' => {
+    'race-grid' => {
         parser => \&provisional_starting_grid,
         table  => 'race_grid',
     },
-    'aus-race-laps' => {
+    'race-laps' => {
         parser => \&race_fastest_laps,
         table  => 'race_fastest_lap',
     },
-    'aus-race-sectors' => {
+    'race-sectors' => {
         parser => \&best_sector_times,
         table  => 'race_best_sector_time',
     },
-    'aus-race-speeds' => {
+    'race-speeds' => {
         parser => \&maximum_speeds,
         table  => 'race_maximum_speed',
     },
-    'aus-race-summary' => {
+    'race-summary' => {
         parser => \&race_pit_stop_summary,
         table  => 'race_pit_stop_summary',
     },
-    'aus-race-trap' => {
+    'race-trap' => {
         parser => \&speed_trap,
         table  => 'race_speed_trap',
     },
 
     # TODO
-    #'aus-qualifying-classification' => \&qualifying_session_classification,
+    #'qualifying-classification' => \&qualifying_session_classification,
     #
-    #'aus-session1-times' => first_practice_session_lap_times,
-    #'aus-session2-classification' => second_practice_session_classification,
-    #'aus-session2-times' => second_practice_session_lap_times,
-    #'aus-session2-classification' => third_practice_session_classification,
-    #'aus-session3-times' => third_practice_session_lap_times,
+    #'session1-times' => first_practice_session_lap_times,
+    #'session2-classification' => second_practice_session_classification,
+    #'session2-times' => second_practice_session_lap_times,
+    #'session2-classification' => third_practice_session_classification,
+    #'session3-times' => third_practice_session_lap_times,
     #
     # OTHERS
-    # 'aus-race-chart'
-    # 'aus-race-classification'
-    # 'aus-race-history'
+    # 'race-chart'
+    # 'race-classification'
+    # 'race-history'
 );
+
+# Update databse from PDFs
+if (defined $update) {
+    update_db($update);
+}
 
 sub update_db
 {
+    my $arg = shift;
 
-    for my $key ( keys %pdf ) {
+    my ( $race, $timesheet, $pdf_ref );
 
-        #my $key = 'aus-qualifying-times';
-        my $pdf = $data_dir . $key;
+    ( my $len = length $arg ) >= 3
+      or die "Please provide an update argument of at least 3 characters\n";
+
+    if ( $len > 3 ) {
+        ( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/;
+        $pdf_ref = { $timesheet => $pdf{$timesheet} }
+          or die "Timing document $arg not recognized\n";
+    }
+    else {
+        $race    = $arg;
+        $pdf_ref = \%pdf;
+    }
+
+    my $race_dir = $docs_dir . "$race/";
+    my $year     = 1900 + (localtime)[5];
+    my $race_id  = "$race-$year";
+
+    for my $key ( keys %$pdf_ref ) {
+        my $src = $race_dir . "$race-$key";
 
         # use two arg open method to get shell redirection to stdout
-        open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
+        open my $text, "PDFTOTEXT -layout $src.pdf - |"
           or die "unable to open PDFTOTEXT: $!";
-        $href = $pdf{$key};
+
+        $href = $pdf_ref->{$key};
         $recs = $href->{parser}($text);
         print Dumper $recs unless $quiet;
         $table = $href->{table};
@@ -578,9 +592,9 @@ sub get_doc_links
 }
 
 __DATA__
-aus-qualifying-sectors:
+qualifying-sectors:
     parser: best_sector_times
     table: qualifying_beast_sector_time
-aus-qualifying-speeds:
+qualifying-speeds:
     parser: maximum_speeds
     table: qualifying_maximum_speed
