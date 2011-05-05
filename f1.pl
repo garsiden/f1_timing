@@ -4,7 +4,8 @@ use LWP::Simple;
 use HTML::LinkExtor;
 use Getopt::Long;
 use Data::Dumper;
-use YAML qw( Load );
+use YAML qw( );
+use Term::ReadKey;
 
 use strict;
 use warnings;
@@ -14,9 +15,11 @@ no strict 'vars';
 
 $data_dir = "$ENV{HOME}/Documents/F1/aus/";
 $docs_dir = "$ENV{HOME}/Documents/F1/";
-$timings_base =
-  'http://fialive.fiacommunications.com/' . 'en-GB/mediacentre/f1_media/Pages/';
-$timings_page = 'timing.aspx';
+
+#$timing_base =
+#  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
+$timing_base = 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
+$timing_page = 'timing.aspx';
 
 $race_id = 'aus-2011';
 $quiet   = 1;
@@ -29,7 +32,7 @@ $man      = 0;
 $versions = 0;
 $update   = 0;
 $test     = 0;
-$timings  = 0;
+$timing   = undef;
 
 Getopt::Long::Configure qw( no_auto_abbrev bundling);
 GetOptions(
@@ -39,12 +42,12 @@ GetOptions(
     'versions'   => \$versions,
     'update:i'   => \$update,
     'u:i'        => \$update,
-    'timings'  => \$timings,
-    't'        => \$timings,
+    'timing:s'   => \$timing,
+    't'          => \$timing,
     'test'       => \$test,
-  );
+);
 
-  # shared regexs
+# shared regexs
 $name_re       = q#[A-Z]\. [A-Z '-]+?#;
 $driver_re     = $name_re;
 $laptime_re    = '\d+:\d\d\.\d\d\d';
@@ -69,35 +72,99 @@ $dbh         = undef;
 # Process command-line arguments
 if ( defined $pause ) { $pause = 1 unless $pause; }
 
-if ($test) {
+if ( defined $timing ) {
+    get_timing();
+}
+
+# download timing PDFs from FIA website
+sub get_timing
+{
+    my $dload        = q{};
+    my $check_exists = 1;
+
+    # get list of latest pdfs
+    my $docs = get_doc_links( $timing_base, $timing_page );
+
+    if ( scalar @$docs == 0 ) {
+        print "No timing currently available.\n";
+    }
+    else {
+        $$docs[0] =~ /([a-z123-]+.pdf$)/;    # get race prefix of first PDF
+        my $race = substr $1, 0, 3;
+        $dload = 1;
+    }
+
+    # if race prefix given check against retrieved list
+    if ( length $timing ) { $dload = $timing eq $race; }
+
+    if ($dload) {
+        my $race_dir = $docs_dir . $race;
+
+        unless ( -d $race_dir ) {
+            mkdir $race_dir
+              or die "Unable to create directory $race_dir: $! $?\n";
+            $check_exists = 0;
+        }
+
+        foreach (@$docs) {
+            ( my $pdf ) = /([a-z123-]+.pdf$)/;
+            my $dest = $race_dir . '/' . $pdf;
+            if ( $check_exists and -f $dest ) {
+                print "File $dest already exists.\n";
+                print "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel) ";
+                ReadMode 'cbreak';
+                my $answer = lc ReadKey(0);
+                ReadMode 'normal';
+
+                while ( index( 'ynac', $answer ) < 0 ) {
+                    print "\nPlease enter [y]es/[n]o/[a]ll/[c]ancel)? ";
+                    ReadMode 'cbreak';
+                    $answer = lc ReadKey(0);
+                    ReadMode 'normal';
+                }
+
+                print "\n";
+                if    ( $answer eq 'c' ) { exit; }
+                elsif ( $answer eq 'n' ) { next; }
+                elsif ( $answer eq 'a' ) { $check_exists = 0; }
+            }
+            my $src = $timing_base . $_;
+            if ( ( my $rc = getstore( $src, $dest ) ) == RC_OK ) {
+                print "Downloaded $pdf.\n";
+            }
+            else {
+                warn "Error downloading $pdf. (Error code: $rc)\n";
+            }
+        }
+    }
+}
+
+sub yaml_hash
+{
     no strict 'refs';
     print 'Running test...', "\n";
     my $pdf = $data_dir . 'aus-session1-classification';
 
-    # use to arg open method to get shell redirection to stdout
     open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
-        or die "unable to open PDFTOTEXT: $!";
+      or die "unable to open PDFTOTEXT: $!";
     $parser = 'practice_session_classification';
-    $recs = &$parser($text);
-    #print Dumper $recs;
+    $recs   = &$parser($text);
 
     close $text
-        or die "bad PDFTOTEXT: $! $?";
+      or die "bad PDFTOTEXT: $! $?";
 
-    local $/ = undef;
-
-    my $data = <DATA>;
-    my $hashref = Load($data);
+    my $data = do { local $/ = undef; <DATA> };
+    my $hashref = YAML::Load($data);
     print Dumper $hashref;
 }
 
-if ( defined $update ) {
+if ($update) {
     update_db();
 }
 
-if ( $timings ) {
-    get_doc_links( $timings_base, $timings_page );
-}
+#if ( $timing ) {
+#    get_doc_links( $timing_base, $timing_page );
+#}
 
 # map PDFs to parsing sub-routines and database tables
 %pdf = (
@@ -179,7 +246,7 @@ sub update_db
         #my $key = 'aus-qualifying-times';
         my $pdf = $data_dir . $key;
 
-        # use to arg open method to get shell redirection to stdout
+        # use two arg open method to get shell redirection to stdout
         open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
           or die "unable to open PDFTOTEXT: $!";
         $href = $pdf{$key};
@@ -483,15 +550,20 @@ sub get_doc_links
     my $url = $base . $page;
     my $content;
 
+    return [
+        '../Documents/mon-this.pdf',
+        '../Documents/mon-race-analysis.pdf',
+        '../Documents/aus-the-other.pdf'
+    ];
+
     unless ( defined( $content = get $url) ) {
-        die "unable to get $url";
+        die "Unable to get $url";
     }
 
     my $parser = HTML::LinkExtor->new;
     $parser->parse($content);
     my @links = $parser->links;
-
-    my @docs = ();
+    my @docs  = ();
 
     foreach $linkarray (@links) {
         ( $tag, %attr ) = @$linkarray;
@@ -502,12 +574,7 @@ sub get_doc_links
 
     print join( "\n", @docs ), "\n";
 
-    my $test_dir = $docs_dir . 'test/';
-    my $src      = $base . $docs[0];
-    ( my $output_file ) = $src =~ /([a-z123-]+.pdf$)/;
-    print "$output_file\t$src\n";
-
-    getstore( $src, $test_dir . $output_file );
+    #return \@docs;
 }
 
 __DATA__
