@@ -13,7 +13,6 @@ no strict 'vars';
 
 # parse FIA F1 timing PDFs
 
-$data_dir = "$ENV{HOME}/Documents/F1/aus/";
 $docs_dir = "$ENV{HOME}/Documents/F1/";
 
 #$timing_base =
@@ -21,7 +20,7 @@ $docs_dir = "$ENV{HOME}/Documents/F1/";
 $timing_base = 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
 $timing_page = 'timing.aspx';
 
-$quiet   = 1;
+$quiet   = 0;
 
 use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
 
@@ -46,7 +45,6 @@ GetOptions(
 
 # shared regexs
 $driver_re     = q#[A-Z]\. [A-Z '-]+?#;
-#$name_re       = $driver_re;
 $laptime_re    = '\d+:\d\d\.\d\d\d';
 $sectortime_re = '\d\d\.\d\d\d';
 $maxspeed_re   = '\d\d\d\.\d{1,3}';
@@ -69,6 +67,10 @@ $dbh         = undef;
 # Process command-line arguments
 if ( defined $pause ) { $pause = 1 unless $pause; }
 
+if ($test) {
+    yaml_hash();
+}
+
 if ( defined $timing ) {
     get_timing();
 }
@@ -78,16 +80,19 @@ sub get_timing
 {
     my $dload        = q{};
     my $check_exists = 1;
+    my $race;
 
     # get list of latest pdfs
     my $docs = get_doc_links( $timing_base, $timing_page );
+
+    print Dumper $docs;
 
     if ( scalar @$docs == 0 ) {
         print "No timing currently available.\n";
     }
     else {
         $$docs[0] =~ /([a-z123-]+.pdf$)/;    # get race prefix of first PDF
-        my $race = substr $1, 0, 3;
+        $race = substr $1, 0, 3;
         $dload = 1;
     }
 
@@ -138,20 +143,32 @@ sub get_timing
 
 sub yaml_hash
 {
+$doc_src = <<PDFS;
+session1-classification:
+    parser: practice_session_classification
+    table: practice_1_classification
+qualifying-sectors:
+    parser: best_sector_times
+    table: qualifying_beast_sector_time
+qualifying-speeds:
+    parser: maximum_speeds
+    table: qualifying_maximum_speed
+PDFS
+
     no strict 'refs';
+
     print 'Running test...', "\n";
-    my $pdf = $data_dir . 'session1-classification';
+    my $pdf = $docs_dir . 'tur/tur-session1-classification';
 
     open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
       or die "unable to open PDFTOTEXT: $!";
-    $parser = 'practice_session_classification';
-    $recs   = &$parser($text);
+    my $parser = 'practice_session_classification';
+    my $recs   = &$parser($text);
 
     close $text
       or die "bad PDFTOTEXT: $! $?";
 
-    my $data = do { local $/ = undef; <DATA> };
-    my $hashref = YAML::Load($data);
+    my $hashref = YAML::Load($doc_src);
     print Dumper $hashref;
 }
 
@@ -163,6 +180,29 @@ sub yaml_hash
     'session1-classification' => {
         parser => \&practice_session_classification,
         table  => 'practice_1_classification',
+    },
+    'session1-times' => {
+        parser => \&time_sheet,
+        table  => 'practice_1_lap_time',
+        fk_table => 'practice_1_driver',
+    },
+    'session2-classification' => {
+        parser => \&practice_session_classification,
+        table  => 'practice_2_classification',
+    },
+    'session2-times' => {
+        parser => \&time_sheet,
+        table  => 'practice_2_lap_time',
+        fk_table => 'practice_2_driver',
+    },
+    'session3-classification' => {
+        parser => \&practice_session_classification,
+        table  => 'practice_3_classification',
+    },
+    'session3-times' => {
+        parser => \&time_sheet,
+        table  => 'practice_3_lap_time',
+        fk_table => 'practice_3_driver',
     },
 
     # Qualifying
@@ -177,6 +217,7 @@ sub yaml_hash
     'qualifying-times' => {
         parser => \&time_sheet,
         table  => 'qualifying_lap_time',
+        fk_table => 'qualifying_driver',
     },
     'qualifying-trap' => {
         parser => \&speed_trap,
@@ -187,6 +228,7 @@ sub yaml_hash
     'race-analysis' => {
         parser => \&time_sheet,
         table  => 'race_lap_analysis',
+        fk_table => 'race_driver',
     },
     'race-grid' => {
         parser => \&provisional_starting_grid,
@@ -215,12 +257,6 @@ sub yaml_hash
 
     # TODO
     #'qualifying-classification' => \&qualifying_session_classification,
-    #
-    #'session1-times' => first_practice_session_lap_times,
-    #'session2-classification' => second_practice_session_classification,
-    #'session2-times' => second_practice_session_lap_times,
-    #'session2-classification' => third_practice_session_classification,
-    #'session3-times' => third_practice_session_lap_times,
     #
     # OTHERS
     # 'race-chart'
@@ -264,7 +300,12 @@ sub update_db
           or die "unable to open PDFTOTEXT: $!";
 
         $href = $pdf_ref->{$key};
-        $recs = $href->{parser}($text);
+        my ($recs, $fk_recs) = $href->{parser}($text);
+
+        if (defined $fk_recs) {
+            my $fk_table = $$href{fk_table};
+            db_insert_array( $race_id, $fk_table, $fk_recs );
+        }
         print Dumper $recs unless $quiet;
         $table = $href->{table};
 
@@ -345,28 +386,35 @@ sub time_sheet
 {
     my $text = shift;
 
-    my $header_re  = qr/($no_re)\s+(?:$driver_re)/;
+    my $header_re  = qr/($no_re)\s+($driver_re)(?: {2,}|\n)/;
     my $laptime_re = qr/($lap_re) *(P)? +($timeofday_re|$laptime_re)\s?/;
     my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
     my @fields = qw(no lap pit time);
+    my @drivers;
 
   HEADER:
     while (<$text>) {
-        if ( my @pos = /$header_re/g ) {
+        if ( my @header = /$header_re/g ) {
+            my @nos;
+            while (my ($no, $driver) = splice(@header, 0, 2)) {
+                push @nos, { 'no', $no, 'name', $driver };
+            }
+            push @drivers, @nos;
 
             # skip empty lines
             do { $line = <$text> } until $line !~ /^\n$/;
 
             # split page into two time columns per driver
+            @col_pos = ();
             while ( $line =~ m/((?:NO|LAP) +TIME\s+?){2}/g ) {
                 push @col_pos, pos $line;
             }
-
+        
           TIMES:
             while (<$text>) {
                 next HEADER if /^\f/;
                 redo HEADER if /$header_re/;
-                next TIMES  if /^\n/;
+                next TIMES  if /^\n$/;
                 $len = length;
                 $prev_col = $idx = 0;
                 for my $col (@col_pos) {
@@ -376,7 +424,7 @@ sub time_sheet
                             substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
                         {
                             my %temp;
-                            @temp{@fields} = ( $pos[$idx], $1, $2, $3 );
+                            @temp{@fields} = ( $nos[$idx]->{'no'}, $1, $2, $3 );
                             push @recs, \%temp;
                         }
                         $prev_col = $col;
@@ -387,7 +435,8 @@ sub time_sheet
         }
     }
 
-    return \@recs;
+    # return times & drivers
+    return \@recs, \@drivers;
 }
 
 # used by race fastest laps and practice session classification
@@ -564,12 +613,6 @@ sub get_doc_links
     my $url = $base . $page;
     my $content;
 
-    return [
-        '../Documents/mon-this.pdf',
-        '../Documents/mon-race-analysis.pdf',
-        '../Documents/aus-the-other.pdf'
-    ];
-
     unless ( defined( $content = get $url) ) {
         die "Unable to get $url";
     }
@@ -588,13 +631,6 @@ sub get_doc_links
 
     print join( "\n", @docs ), "\n";
 
-    #return \@docs;
+    return \@docs;
 }
 
-__DATA__
-qualifying-sectors:
-    parser: best_sector_times
-    table: qualifying_beast_sector_time
-qualifying-speeds:
-    parser: maximum_speeds
-    table: qualifying_maximum_speed
