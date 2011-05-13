@@ -1,0 +1,19 @@
+TODO
+
+ 1. Define command line interface
+
+ 2. Implement POD help
+
+ 3. INSTALL file
+
+ 4. README file
+
+ 5. Race lap analysis crosstab
+
+ 6. Decide on whether to use YAML
+
+ 7. Tidy up config variables
+
+ 8. Parse starting grid
+
+ 9. Look at un-parsed PDFs
