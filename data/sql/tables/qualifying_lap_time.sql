@@ -11,7 +11,10 @@ CREATE TABLE qualifying_lap_time
     FOREIGN KEY (race_id) REFERENCES race(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
-    CHECK (no BETWEEN 1 AND 26)
+    FOREIGN KEY (race_id, no) REFERENCES qualifying_driver(race_id, no)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+    CHECK (no BETWEEN 1 AND 25)
 );
 
 CREATE INDEX IF NOT EXISTS qualifying_lap_time_race_id_idx ON qualifying_lap_time(race_id);
