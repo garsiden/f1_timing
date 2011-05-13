@@ -1,35 +1,48 @@
 #! /usr/bin/env perl
+
 use DBI;
 use LWP::Simple;
 use HTML::LinkExtor;
 use Getopt::Long;
+use Pod::Usage;
 use Data::Dumper;
 use YAML qw( );
 use Term::ReadKey;
 
 use strict;
 use warnings;
-no strict 'vars';
 
 # parse FIA F1 timing PDFs
 
-$docs_dir = "$ENV{HOME}/Documents/F1/";
+# config variables
+my $docs_dir    = "$ENV{HOME}/Documents/F1/";
+my $timing_base = 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
+my $timing_page = 'timing.aspx';
 
-#$timing_base =
-#  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
-$timing_base = 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
-$timing_page = 'timing.aspx';
+# Database variables
+my $dbfile      = "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
+my $data_source = "dbi:SQLite:dbname=$dbfile";
+my $pwd         = q{};
+my $user        = q{};
 
-$quiet   = 0;
-
+# eternal program path
 use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
 
-$database = q{};
-$help     = 0;
-$man      = 0;
-$update   = undef;
-$test     = 0;
-$timing   = undef;
+# old FIA web page
+#$timing_base =
+#  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
+
+# Database handle
+my $dbh = undef;
+
+# command line option variables
+my $quiet    = 1;
+my $database = q{};
+my $help     = 0;
+my $man      = 0;
+my $update   = undef;
+my $test     = 0;
+my $timing   = undef;
 
 Getopt::Long::Configure qw( no_auto_abbrev bundling);
 GetOptions(
@@ -39,33 +52,29 @@ GetOptions(
     'update=s'   => \$update,
     'u=s'        => \$update,
     'timing:s'   => \$timing,
-    't'          => \$timing,
+    't:s'        => \$timing,
     'test'       => \$test,
-);
+) or pod2usage(2);
+
+pod2usage(1) if $help;
+pod2usage( -verbose => 2 ) if $man;
 
 # shared regexs
-$driver_re     = q#[A-Z]\. [A-Z '-]+?#;
-$laptime_re    = '\d+:\d\d\.\d\d\d';
-$sectortime_re = '\d\d\.\d\d\d';
-$maxspeed_re   = '\d\d\d\.\d{1,3}';
-$kph_re        = $maxspeed_re;
-$entrant_re    = '[A-z0-9& -]+';
-$pos_re        = '\d{1,2}';
-$no_re         = $pos_re;
-$lap_re        = '\d{1,2}';
-$timeofday_re  = '\d\d:\d\d:\d\d';
-$nat_re        = '[A-Z]{3}';
-$gap_re        = '\d{1,2}\.\d\d\d';
-
-# Database variables
-$dbfile      = "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
-$data_source = "dbi:SQLite:dbname=$dbfile";
-$pwd         = q{};
-$user        = q{};
-$dbh         = undef;
+my $driver_re     = q#[A-Z]\. [A-Z '-]+?#;
+my $laptime_re    = '\d+:\d\d\.\d\d\d';
+my $sectortime_re = '\d\d\.\d\d\d';
+my $maxspeed_re   = '\d\d\d\.\d{1,3}';
+my $kph_re        = $maxspeed_re;
+my $entrant_re    = '[A-z0-9& -]+';
+my $pos_re        = '\d{1,2}';
+my $no_re         = $pos_re;
+my $lap_re        = '\d{1,2}';
+my $timeofday_re  = '\d\d:\d\d:\d\d';
+my $nat_re        = '[A-Z]{3}';
+my $gap_re        = '\d{1,2}\.\d\d\d';
 
 # Process command-line arguments
-if ( defined $pause ) { $pause = 1 unless $pause; }
+#if ( defined $pause ) { $pause = 1 unless $pause; }
 
 if ($test) {
     yaml_hash();
@@ -85,7 +94,7 @@ sub get_timing
     # get list of latest pdfs
     my $docs = get_doc_links( $timing_base, $timing_page );
 
-    print Dumper $docs;
+    #print Dumper $docs;
 
     if ( scalar @$docs == 0 ) {
         print "No timing currently available.\n";
@@ -97,7 +106,7 @@ sub get_timing
     }
 
     # if race prefix given check against retrieved list
-    if ( length $timing ) { $dload = $timing eq $race; }
+    $dload = $timing if length $timing;
 
     if ($dload) {
         my $race_dir = $docs_dir . $race;
@@ -143,7 +152,7 @@ sub get_timing
 
 sub yaml_hash
 {
-$doc_src = <<PDFS;
+    my $doc_src = <<PDFS;
 session1-classification:
     parser: practice_session_classification
     table: practice_1_classification
@@ -168,13 +177,18 @@ PDFS
     close $text
       or die "bad PDFTOTEXT: $! $?";
 
-    my $hashref = YAML::Load($doc_src);
+    my $src2;
+    do {
+        local $/ = undef;
+        $src2 = <DATA>;
+    };
+
+    my $hashref = YAML::Load($src2);
     print Dumper $hashref;
 }
 
-
 # map PDFs to parsing sub-routines and database tables
-%pdf = (
+my %pdf = (
 
     # Practice
     'session1-classification' => {
@@ -182,8 +196,8 @@ PDFS
         table  => 'practice_1_classification',
     },
     'session1-times' => {
-        parser => \&time_sheet,
-        table  => 'practice_1_lap_time',
+        parser   => \&time_sheet,
+        table    => 'practice_1_lap_time',
         fk_table => 'practice_1_driver',
     },
     'session2-classification' => {
@@ -191,8 +205,8 @@ PDFS
         table  => 'practice_2_classification',
     },
     'session2-times' => {
-        parser => \&time_sheet,
-        table  => 'practice_2_lap_time',
+        parser   => \&time_sheet,
+        table    => 'practice_2_lap_time',
         fk_table => 'practice_2_driver',
     },
     'session3-classification' => {
@@ -200,8 +214,8 @@ PDFS
         table  => 'practice_3_classification',
     },
     'session3-times' => {
-        parser => \&time_sheet,
-        table  => 'practice_3_lap_time',
+        parser   => \&time_sheet,
+        table    => 'practice_3_lap_time',
         fk_table => 'practice_3_driver',
     },
 
@@ -215,8 +229,8 @@ PDFS
         table  => 'qualifying_maximum_speed',
     },
     'qualifying-times' => {
-        parser => \&time_sheet,
-        table  => 'qualifying_lap_time',
+        parser   => \&time_sheet,
+        table    => 'qualifying_lap_time',
         fk_table => 'qualifying_driver',
     },
     'qualifying-trap' => {
@@ -226,8 +240,8 @@ PDFS
 
     # Race
     'race-analysis' => {
-        parser => \&time_sheet,
-        table  => 'race_lap_analysis',
+        parser   => \&time_sheet,
+        table    => 'race_lap_analysis',
         fk_table => 'race_driver',
     },
     'race-grid' => {
@@ -265,7 +279,7 @@ PDFS
 );
 
 # Update databse from PDFs
-if (defined $update) {
+if ( defined $update ) {
     update_db($update);
 }
 
@@ -299,15 +313,15 @@ sub update_db
         open my $text, "PDFTOTEXT -layout $src.pdf - |"
           or die "unable to open PDFTOTEXT: $!";
 
-        $href = $pdf_ref->{$key};
-        my ($recs, $fk_recs) = $href->{parser}($text);
+        my $href = $pdf_ref->{$key};
+        my ( $recs, $fk_recs ) = $href->{parser}($text);
 
-        if (defined $fk_recs) {
+        if ( defined $fk_recs ) {
             my $fk_table = $$href{fk_table};
             db_insert_array( $race_id, $fk_table, $fk_recs );
         }
         print Dumper $recs unless $quiet;
-        $table = $href->{table};
+        my $table = $href->{table};
 
         db_insert_array( $race_id, $table, $recs );
         close $text
@@ -315,11 +329,6 @@ sub update_db
     }
 }
 
-# PRACTICE
-
-# QUALIFYING
-
-# RACE
 sub provisional_starting_grid
 {
     my $text = shift;
@@ -396,7 +405,7 @@ sub time_sheet
     while (<$text>) {
         if ( my @header = /$header_re/g ) {
             my @nos;
-            while (my ($no, $driver) = splice(@header, 0, 2)) {
+            while ( my ( $no, $driver ) = splice( @header, 0, 2 ) ) {
                 push @nos, { 'no', $no, 'name', $driver };
             }
             push @drivers, @nos;
@@ -409,7 +418,7 @@ sub time_sheet
             while ( $line =~ m/((?:NO|LAP) +TIME\s+?){2}/g ) {
                 push @col_pos, pos $line;
             }
-        
+
           TIMES:
             while (<$text>) {
                 next HEADER if /^\f/;
@@ -494,7 +503,7 @@ sub maximum_speeds
     my $regex  = qr/\G($driver_re) +($kph_re)\s+/;
     my $num_re = qr/ ($no_re) /;
 
-    my ( $line, $driver, $time, $pos, $n, $speedtrap, @recs );
+    my ( $line, $driver, $kph, $time, $pos, $no, $speedtrap, @recs );
 
   LOOP:
     while ( $line = <$text> ) {
@@ -524,7 +533,7 @@ sub best_sector_times
     my $regex  = qr/\G($driver_re) +($sectortime_re)\s+/;
     my $num_re = qr/ ($no_re) /;
 
-    my ( $line, $driver, $time, $pos, $n, $sector, @recs );
+    my ( $line, $driver, $time, $pos, $no, $sector, @recs );
 
   LOOP:
     while ( $line = <$text> ) {
@@ -567,6 +576,11 @@ sub db_insert_array
     my $dbh = db_connect();
     my $tuples;
     my @tuple_status;
+
+    if ( scalar @$array_ref == 0 ) {
+        warn "No records to insert for table $table\n";
+        return;
+    }
 
     eval {
         my @keys = keys %{ $$array_ref[0] };
@@ -622,8 +636,8 @@ sub get_doc_links
     my @links = $parser->links;
     my @docs  = ();
 
-    foreach $linkarray (@links) {
-        ( $tag, %attr ) = @$linkarray;
+    foreach my $linkarray (@links) {
+        my ( $tag, %attr ) = @$linkarray;
         next unless $tag eq 'a';
         next unless $attr{href} =~ /(^.*\.pdf$)/;
         push @docs, $1;
@@ -633,4 +647,51 @@ sub get_doc_links
 
     return \@docs;
 }
+
+# POD
+
+=head1 NAME
+
+sample - Using GetOpt::Long and Pod::Usage
+
+=head1 SYNOPSIS
+
+sample [options] [file ...]
+
+Options:
+-help brief help message
+-man full documentation
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<-help>
+
+Print a brief help message and exits.
+
+=item B<-man>
+
+Prints the manual page and exits.
+
+=back
+
+=head1 DESCRIPTION
+
+B<This program> will read the given input file(s) and do something
+useful with the contents thereof.
+
+=cut
+
+__DATA__
+
+session1-classification:
+    parser: practice_session_classification
+    table: practice_1_classification
+qualifying-sectors:
+    parser: best_sector_times
+    table: qualifying_beast_sector_time
+qualifying-speeds:
+    parser: maximum_speeds
+    table: qualifying_maximum_speed
 
