@@ -11,7 +11,10 @@ CREATE TABLE race_lap_analysis
     FOREIGN KEY (race_id) REFERENCES race(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
-    CHECK (no BETWEEN 1 AND 26)
+    FOREIGN KEY (race_id, no) REFERENCES race_driver(race_id, no)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+    CHECK (no BETWEEN 1 AND 25)
 );
 
 CREATE INDEX IF NOT EXISTS race_lap_analysis_race_id_idx ON race_lap_analysis(race_id);
