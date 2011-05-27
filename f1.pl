@@ -6,7 +6,6 @@ use HTML::LinkExtor;
 use Getopt::Long;
 use Pod::Usage;
 use Data::Dumper;
-use YAML qw( );
 use Term::ReadKey;
 
 use strict;
@@ -79,7 +78,7 @@ my $gap_re        = '\d{1,2}\.\d\d\d';
 #if ( defined $pause ) { $pause = 1 unless $pause; }
 
 if ($test) {
-    yaml_hash();
+#    yaml_hash();
 }
 
 if ( defined $timing ) {
@@ -150,43 +149,6 @@ sub get_timing
             }
         }
     }
-}
-
-sub yaml_hash
-{
-    my $doc_src = <<PDFS;
-session1-classification:
-    parser: practice_session_classification
-    table: practice_1_classification
-qualifying-sectors:
-    parser: best_sector_times
-    table: qualifying_beast_sector_time
-qualifying-speeds:
-    parser: maximum_speeds
-    table: qualifying_maximum_speed
-PDFS
-
-    no strict 'refs';
-
-    print 'Running test...', "\n";
-    my $pdf = $docs_dir . 'tur/tur-session1-classification';
-
-    open my $text, "PDFTOTEXT -layout $pdf.pdf - |"
-      or die "unable to open PDFTOTEXT: $!";
-    my $parser = 'practice_session_classification';
-    my $recs   = &$parser($text);
-
-    close $text
-      or die "bad PDFTOTEXT: $! $?";
-
-    my $src2;
-    do {
-        local $/ = undef;
-        $src2 = <DATA>;
-    };
-
-    my $hashref = YAML::Load($src2);
-    print Dumper $hashref;
 }
 
 # map PDFs to parsing sub-routines and database tables
@@ -281,10 +243,9 @@ my %pdf = (
     # OTHERS
     # 'race-chart'
     # 'race-classification'
-    # 'race-history'
 );
 
-# Update databse from PDFs
+# Update database from PDFs
 if ( defined $update ) {
     update_db($update);
 }
@@ -399,9 +360,9 @@ sub race_history_chart
         }
     }
 
-    # return times & drivers
     return \@recs;
 }
+
 sub provisional_starting_grid
 {
     my $text = shift;
@@ -763,16 +724,3 @@ B<This program> will read the given input file(s) and do something
 useful with the contents thereof.
 
 =cut
-
-__DATA__
-
-session1-classification:
-    parser: practice_session_classification
-    table: practice_1_classification
-qualifying-sectors:
-    parser: best_sector_times
-    table: qualifying_beast_sector_time
-qualifying-speeds:
-    parser: maximum_speeds
-    table: qualifying_maximum_speed
-
