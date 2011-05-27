@@ -43,6 +43,7 @@ my $man      = 0;
 my $update   = undef;
 my $test     = 0;
 my $timing   = undef;
+my $dump     = 0;
 
 Getopt::Long::Configure qw( no_auto_abbrev bundling);
 GetOptions(
@@ -54,6 +55,7 @@ GetOptions(
     'timing:s'   => \$timing,
     't:s'        => \$timing,
     'test'       => \$test,
+    'dump'       => \$dump,
 ) or pod2usage(2);
 
 pod2usage(1) if $help;
@@ -248,6 +250,10 @@ my %pdf = (
         parser => \&provisional_starting_grid,
         table  => 'race_grid',
     },
+    'race-history' => {
+        parser => \&race_history_chart,
+        table  => 'race_history',
+    },
     'race-laps' => {
         parser => \&race_fastest_laps,
         table  => 'race_fastest_lap',
@@ -320,7 +326,9 @@ sub update_db
             my $fk_table = $$href{fk_table};
             db_insert_array( $race_id, $fk_table, $fk_recs );
         }
-        print Dumper $recs unless $quiet;
+
+        print Dumper($recs) if $dump;
+
         my $table = $href->{table};
 
         db_insert_array( $race_id, $table, $recs );
@@ -329,6 +337,71 @@ sub update_db
     }
 }
 
+sub race_history_chart
+{
+    my $text = shift;
+
+#    my $header_re  = qr/($no_re)\s+($driver_re)(?: {2,}|\n)/;
+    my $header_re = qr/(?:LAP )(\d{1,2})(?:    |\n)/;
+    # my $laptime_re = qr/($lap_re)(?:PIT|\d [LAPS]{3,4}|\d{1,3}\.\d{3})($laptime_re)\s?/;
+    #my $laptime_re = qr/(\d{1,2}) ?(PIT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
+    my $laptime_re = qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(PIT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
+    my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
+    my @fields = qw(lap no  pit time);
+    my @drivers;
+    my $laptime;
+
+    my %lapcounter;
+
+    HEADER:
+    while (<$text>) {
+        if ( my @laps = /$header_re/g ) {
+            #print Dumper \@laps;
+            # skip empty lines
+            do { $line = <$text> } until $line !~ /^\n$/;
+
+            # split page into upto 5 lap columns
+            @col_pos = ();
+            while ( $line =~ m/(NO +GAP +TIME\s+)/g ) {
+                push @col_pos, pos $line;
+            }
+
+            TIMES:
+            while (<$text>) {
+                next HEADER if /^\f/;
+                redo HEADER if /$header_re/;
+                next TIMES  if /^\n$/;
+                $len = length;
+                $prev_col = $idx = 0;
+                for my $col (@col_pos) {
+                    $width = $col - $prev_col;
+                    if ( $prev_col < $len ) {
+                        while (
+                            substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
+                        {
+                            my %temp;
+                            my ($n, $p, $t);
+                            if (defined $1) {
+                                ($n, $t) = ($1, $3);
+                            }
+                            else {
+                                ($n, $p, $t) = ($4, $5, $6);
+                            }
+                            $laptime = "00:0$t";
+                            @temp{@fields} = ( $laps[$idx], $n, $p, $laptime );
+                            push @recs, \%temp;
+                        }
+                        $prev_col = $col;
+                        $idx++;
+                    }
+                }
+            }
+        }
+    }
+
+    # return times & drivers
+    return \@recs;
+}
 sub provisional_starting_grid
 {
     my $text = shift;
@@ -400,6 +473,7 @@ sub time_sheet
     my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
     my @fields = qw(no lap pit time);
     my @drivers;
+    my $laptime;
 
   HEADER:
     while (<$text>) {
@@ -433,7 +507,14 @@ sub time_sheet
                             substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
                         {
                             my %temp;
-                            @temp{@fields} = ( $nos[$idx]->{'no'}, $1, $2, $3 );
+                            my ($l, $p, $t) = ($1, $2, $3);
+                            if ($t =~ /\d\d:\d\d:\d\d/ ) {
+                                $laptime = "$t.000";
+                            }
+                            else {
+                                $laptime = "00:0$t";
+                            }
+                            @temp{@fields} = ( $nos[$idx]->{'no'}, $l, $p, $laptime );
                             push @recs, \%temp;
                         }
                         $prev_col = $col;
