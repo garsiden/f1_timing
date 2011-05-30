@@ -184,23 +184,21 @@ sub get_timing
     my $dload        = q{};
     my $check_exists = 1;
     my $race;
+    my $get_docs;
+    my %args;
+
+    foreach (qw( p1 p2 p3 q r thu fri sat )) { $args{$_}++ }
 
     # package variables to be accessed through $timing variable
-    our @p2 = qw( session2-classification session2-times );
-    our @p1 = qw( session1-classification session1-times );
-    our @p3 = qw( session3-classification session3-times );
-    our @q  = qw(
-      qualifying-sectors qualifying-speeds qualifying-times qualifying-trap
-    );
-    our @r = qw(
-      race-analysis race-grid   race-history race-laps
-      race-sectors  race-speeds race-summary race-trap
-      race-chart    race-classification
-    );
+    our ( $p1, $p2, $p3, $q, $r, $thu, $fri, $sat, $sun );
+    $p1  = qr/session1/;
+    $p2  = qr/session2/;
+    $fri = $thu = qr/$p1|$p2/;
+    $p3  = $sat = qr/session3/;
+    $r   = $sun = qr/race/;
 
     # get list of latest pdfs
     my $docs = get_doc_links( $timing_base, $timing_page );
-    my $get_docs;
 
     scalar @$docs > 0
       or die "No timing data currently available.\n";
@@ -212,27 +210,23 @@ sub get_timing
         $get_docs = $docs;
     }
     else {
-        index( 'p1p2p3qr', $timing ) > -1
+        my $arg = lc $timing;
+        exists $args{$arg}
           or die "$timing timing option not recognized\n";
 
-        my ( @session, my @regexes );
+        my $re;
 
         do {
             no strict 'refs';
-            @regexes = map { qr/$_/ } @$timing;
+            $re = $$arg;
         };
 
-        foreach my $doc (@$docs) {
-            foreach my $re (@regexes) {
-                push @session, $doc if $doc =~ /$re/;
-            }
-        }
-        $get_docs = \@session;
+        $get_docs = [ grep /$re/, @$docs ];
     }
 
     print Dumper $get_docs;
-    return;
 
+    return;
     my $race_dir = $docs_dir . $race;
 
     unless ( -d $race_dir ) {
@@ -241,7 +235,7 @@ sub get_timing
         $check_exists = 0;
     }
 
-    foreach (@$docs) {
+    foreach (@$get_docs) {
         ( my $pdf ) = /([a-z123-]+.pdf$)/;
         my $dest = $race_dir . '/' . $pdf;
         if ( $check_exists and -f $dest ) {
