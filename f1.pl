@@ -181,21 +181,10 @@ if ( defined $timing ) {
 # download timing PDFs from FIA website
 sub get_timing
 {
-    my $dload        = q{};
     my $check_exists = 1;
     my $race;
     my $get_docs;
     my %args;
-
-    foreach (qw( p1 p2 p3 q r thu fri sat )) { $args{$_}++ }
-
-    # package variables to be accessed through $timing variable
-    our ( $p1, $p2, $p3, $q, $r, $thu, $fri, $sat, $sun );
-    $p1  = qr/session1/;
-    $p2  = qr/session2/;
-    $fri = $thu = qr/$p1|$p2/;
-    $p3  = $sat = qr/session3/;
-    $r   = $sun = qr/race/;
 
     # get list of latest pdfs
     my $docs = get_doc_links( $timing_base, $timing_page );
@@ -210,23 +199,26 @@ sub get_timing
         $get_docs = $docs;
     }
     else {
+        %args = (
+            p1  => qr/session1/,
+            p2  => qr/session2/,
+            p3  => qr/session3/,
+            p   => qr/session[123]/,
+            q   => qr/qualifying/,
+            r   => qr/race/,
+            fri => qr/session[12]/,
+            sat => qr/session3|qualifying/,
+        );
+        $args{thu} = $args{fri};
+        $args{sun} = $args{r};
+
         my $arg = lc $timing;
-        exists $args{$arg}
+        defined( my $re = $args{$arg} )
           or die "$timing timing option not recognized\n";
-
-        my $re;
-
-        do {
-            no strict 'refs';
-            $re = $$arg;
-        };
 
         $get_docs = [ grep /$re/, @$docs ];
     }
 
-    print Dumper $get_docs;
-
-    return;
     my $race_dir = $docs_dir . $race;
 
     unless ( -d $race_dir ) {
@@ -266,7 +258,6 @@ sub get_timing
         }
     }
 }
-
 
 # Update database from PDFs
 if ( defined $update ) {
