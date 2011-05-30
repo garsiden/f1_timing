@@ -74,83 +74,6 @@ my $timeofday_re  = '\d\d:\d\d:\d\d';
 my $nat_re        = '[A-Z]{3}';
 my $gap_re        = '\d{1,2}\.\d\d\d';
 
-# Process command-line arguments
-#if ( defined $pause ) { $pause = 1 unless $pause; }
-
-if ($test) {
-#    yaml_hash();
-}
-
-if ( defined $timing ) {
-    get_timing();
-}
-
-# download timing PDFs from FIA website
-sub get_timing
-{
-    my $dload        = q{};
-    my $check_exists = 1;
-    my $race;
-
-    # get list of latest pdfs
-    my $docs = get_doc_links( $timing_base, $timing_page );
-
-    #print Dumper $docs;
-
-    if ( scalar @$docs == 0 ) {
-        print "No timing currently available.\n";
-    }
-    else {
-        $$docs[0] =~ /([a-z123-]+.pdf$)/;    # get race prefix of first PDF
-        $race = substr $1, 0, 3;
-        $dload = 1;
-    }
-
-    # if race prefix given check against retrieved list
-    $dload = $timing if length $timing;
-
-    if ($dload) {
-        my $race_dir = $docs_dir . $race;
-
-        unless ( -d $race_dir ) {
-            mkdir $race_dir
-              or die "Unable to create directory $race_dir: $! $?\n";
-            $check_exists = 0;
-        }
-
-        foreach (@$docs) {
-            ( my $pdf ) = /([a-z123-]+.pdf$)/;
-            my $dest = $race_dir . '/' . $pdf;
-            if ( $check_exists and -f $dest ) {
-                print "File $dest already exists.\n";
-                print "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel) ";
-                ReadMode 'cbreak';
-                my $answer = lc ReadKey(0);
-                ReadMode 'normal';
-
-                while ( index( 'ynac', $answer ) < 0 ) {
-                    print "\nPlease enter [y]es/[n]o/[a]ll/[c]ancel)? ";
-                    ReadMode 'cbreak';
-                    $answer = lc ReadKey(0);
-                    ReadMode 'normal';
-                }
-
-                print "\n";
-                if    ( $answer eq 'c' ) { exit; }
-                elsif ( $answer eq 'n' ) { next; }
-                elsif ( $answer eq 'a' ) { $check_exists = 0; }
-            }
-            my $src = $timing_base . $_;
-            if ( ( my $rc = getstore( $src, $dest ) ) == RC_OK ) {
-                print "Downloaded $pdf.\n";
-            }
-            else {
-                warn "Error downloading $pdf. (Error code: $rc)\n";
-            }
-        }
-    }
-}
-
 # map PDFs to parsing sub-routines and database tables
 my %pdf = (
 
@@ -244,6 +167,112 @@ my %pdf = (
     # 'race-chart'
     # 'race-classification'
 );
+# Process command-line arguments
+#if ( defined $pause ) { $pause = 1 unless $pause; }
+
+if ($test) {
+#    yaml_hash();
+}
+
+if ( defined $timing ) {
+    get_timing();
+}
+
+# download timing PDFs from FIA website
+sub get_timing
+{
+    my $dload        = q{};
+    my $check_exists = 1;
+    my $race;
+
+    # package variables to be accessed through $timing variable
+    our @p2 = qw( session2-classification session2-times );
+    our @p1 = qw( session1-classification session1-times );
+    our @p3 = qw( session3-classification session3-times );
+    our @q  = qw(
+      qualifying-sectors qualifying-speeds qualifying-times qualifying-trap
+    );
+    our @r = qw(
+      race-analysis race-grid   race-history race-laps
+      race-sectors  race-speeds race-summary race-trap
+      race-chart    race-classification
+    );
+
+    # get list of latest pdfs
+    my $docs = get_doc_links( $timing_base, $timing_page );
+    my $get_docs;
+
+    scalar @$docs > 0
+      or die "No timing data currently available.\n";
+
+    $$docs[0] =~ /([a-z123-]+.pdf$)/;    # get race prefix of first PDF
+    $race = substr $1, 0, 3;
+
+    unless ( length $timing ) {
+        $get_docs = $docs;
+    }
+    else {
+        index( 'p1p2p3qr', $timing ) > -1
+          or die "$timing timing option not recognized\n";
+
+        my ( @session, my @regexes );
+
+        do {
+            no strict 'refs';
+            @regexes = map { qr/$_/ } @$timing;
+        };
+
+        foreach my $doc (@$docs) {
+            foreach my $re (@regexes) {
+                push @session, $doc if $doc =~ /$re/;
+            }
+        }
+        $get_docs = \@session;
+    }
+
+    print Dumper $get_docs;
+    return;
+
+    my $race_dir = $docs_dir . $race;
+
+    unless ( -d $race_dir ) {
+        mkdir $race_dir
+          or die "Unable to create directory $race_dir: $! $?\n";
+        $check_exists = 0;
+    }
+
+    foreach (@$docs) {
+        ( my $pdf ) = /([a-z123-]+.pdf$)/;
+        my $dest = $race_dir . '/' . $pdf;
+        if ( $check_exists and -f $dest ) {
+            print "File $dest already exists.\n";
+            print "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel) ";
+            ReadMode 'cbreak';
+            my $answer = lc ReadKey(0);
+            ReadMode 'normal';
+
+            while ( index( 'ynac', $answer ) < 0 ) {
+                print "\nPlease enter [y]es/[n]o/[a]ll/[c]ancel)? ";
+                ReadMode 'cbreak';
+                $answer = lc ReadKey(0);
+                ReadMode 'normal';
+            }
+
+            print "\n";
+            if    ( $answer eq 'c' ) { exit; }
+            elsif ( $answer eq 'n' ) { next; }
+            elsif ( $answer eq 'a' ) { $check_exists = 0; }
+        }
+        my $src = $timing_base . $_;
+        if ( ( my $rc = getstore( $src, $dest ) ) == RC_OK ) {
+            print "Downloaded $pdf.\n";
+        }
+        else {
+            warn "Error downloading $pdf. (Error code: $rc)\n";
+        }
+    }
+}
+
 
 # Update database from PDFs
 if ( defined $update ) {
@@ -306,13 +335,11 @@ sub race_history_chart
     my $header_re = qr/(?:LAP )(\d{1,2})(?:    |\n)/;
     # my $laptime_re = qr/($lap_re)(?:PIT|\d [LAPS]{3,4}|\d{1,3}\.\d{3})($laptime_re)\s?/;
     #my $laptime_re = qr/(\d{1,2}) ?(PIT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
-    my $laptime_re = qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(PIT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
+    my $laptime_re = qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(P)?(?:IT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
     my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
     my @fields = qw(lap no  pit time);
     my @drivers;
     my $laptime;
-
-    my %lapcounter;
 
     HEADER:
     while (<$text>) {
@@ -684,8 +711,6 @@ sub get_doc_links
         next unless $attr{href} =~ /(^.*\.pdf$)/;
         push @docs, $1;
     }
-
-    print join( "\n", @docs ), "\n";
 
     return \@docs;
 }
