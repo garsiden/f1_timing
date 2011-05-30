@@ -27,5 +27,5 @@ MAX(CASE WHEN no = 22 THEN time ELSE NULL END) AS "22",
 MAX(CASE WHEN no = 23 THEN time ELSE NULL END) AS "23",
 MAX(CASE WHEN no = 24 THEN time ELSE NULL END) AS "24",
 MAX(CASE WHEN no = 25 THEN time ELSE NULL END) AS "25"
-FROM race_lap_analysis
+FROM race_lap_hms
 GROUP BY race_id, lap;
