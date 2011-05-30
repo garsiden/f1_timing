@@ -5,7 +5,7 @@ CREATE TABLE race_history
     race_id CHAR(8),
     no INTEGER,
     lap INTEGER,
-    pit CHAR(3),
+    pit CHAR(1),
     time TIME,
 --  PRIMARY KEY (race_id, no, lap),
     FOREIGN KEY (race_id) REFERENCES race(id)
