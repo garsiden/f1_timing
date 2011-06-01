@@ -7,6 +7,7 @@ use Getopt::Long;
 use Pod::Usage;
 use Data::Dumper;
 use Term::ReadKey;
+use File::Spec::Functions;
 
 use strict;
 use warnings;
@@ -14,30 +15,28 @@ use warnings;
 # parse FIA F1 timing PDFs
 
 # config variables
-my $docs_dir    = "$ENV{HOME}/Documents/F1/";
-my $timing_base = 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
-my $timing_page = 'timing.aspx';
+use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/";
+use constant PDFTOTEXT   => '/usr/local/bin/pdftotext';
+use constant TIMING_BASE => 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
+use constant TIMING_PAGE => 'timing.aspx';
 # old FIA web page
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 
-# Database variables
-my $dbfile      = "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
-my $data_source = "dbi:SQLite:dbname=$dbfile";
-my $pwd         = q{};
-my $user        = q{};
+# database variables
+use constant DB_PATH   => "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
+use constant DB_PWD    => q{};
+use constant DB_USER   => q{};
 
-# eternal program path
-use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
-
-# Database handle
+# database handle
 my $dbh = undef;
 
 # comand line option variables
 my $timing   = undef;
 my $update   = undef;
 my $calendar = undef;
+my $docs_dir = undef;
 my $verbose  = 0;
-my $database = q{};
+my $db_path  = undef;
 my $help     = 0;
 my $man      = 0;
 # test/debug
@@ -51,7 +50,8 @@ GetOptions(
     'update=s'   => \$update,
     'u=s'        => \$update,
     'c:i'        => \$calendar,
-    'database=s' => \$database,
+    'db-path=s'  => \$db_path,
+    'docs-dir=s' => \$docs_dir,
     'help'       => \$help,
     'man'        => \$man,
     'test'       => \$test,
@@ -80,9 +80,9 @@ my $pdf_href = undef;
 
 # Process command-line arguments
 #if ( defined $pause ) { $pause = 1 unless $pause; }
-if ( defined $timing ) { get_timing() }
-if ( defined $update ) { update_db($update) }
-if ( defined $calendar) { get_calendar($calendar) }
+if    ( defined $timing )  { get_timing() }
+elsif ( defined $update )  { update_db($update) }
+elsif ( defined $calendar) { get_calendar($calendar) }
 #if ( defined $test) { yaml_hash() }
 
 # download timing PDFs from FIA website
@@ -94,7 +94,7 @@ sub get_timing
     my %args;
 
     # get list of latest pdfs
-    my $docs = get_doc_links( $timing_base, $timing_page );
+    my $docs = get_doc_links( TIMING_BASE, TIMING_PAGE );
 
     scalar @$docs > 0
       or die "No timing data currently available.\n";
@@ -128,7 +128,8 @@ sub get_timing
 
     print Dumper $get_docs if $debug;
 
-    my $race_dir = $docs_dir . $race;
+    my $src_dir = get_docs_dir();
+    my $race_dir = catdir($src_dir , $race);
 
     unless ( -d $race_dir ) {
         mkdir $race_dir
@@ -138,7 +139,8 @@ sub get_timing
 
     foreach (@$get_docs) {
         ( my $pdf ) = /([a-z123-]+.pdf$)/;
-        my $dest = $race_dir . '/' . $pdf;
+        my $dest = catfile($race_dir, $pdf);
+        print Dumper $dest if $debug;;
         if ( $check_exists and -f $dest ) {
             print "File $dest already exists.\n";
             print "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel) ";
@@ -158,7 +160,7 @@ sub get_timing
             elsif ( $answer eq 'n' ) { next; }
             elsif ( $answer eq 'a' ) { $check_exists = 0; }
         }
-        my $src = $timing_base . $_;
+        my $src = TIMING_BASE . $_;
         if ( ( my $rc = getstore( $src, $dest ) ) == RC_OK ) {
             print "Downloaded $pdf.\n";
         }
@@ -166,6 +168,13 @@ sub get_timing
             warn "Error downloading $pdf. (Error code: $rc)\n";
         }
     }
+}
+
+sub get_docs_dir
+{
+    if    (defined $docs_dir) { return $docs_dir }
+    elsif (defined (my $env = $ENV{F1_TIMING_DOCS_DIR})) { return $env }
+    else  { return DOCS_DIR }
 }
 
 sub update_db
@@ -188,15 +197,16 @@ sub update_db
         $pdf_ref = $pdf_map;
     }
 
-    my $race_dir = $docs_dir . "$race/";
-    my $year     = 1900 + (localtime)[5];
-    my $race_id  = "$race-$year";
+    my $race_dir = catdir( get_docs_dir(), $race );
+    my $year = 1900 + (localtime)[5];
+    my $race_id = "$race-$year";
 
     for my $key ( keys %$pdf_ref ) {
-        my $src = $race_dir . "$race-$key";
+        my $src = catfile( $race_dir, "$race-$key.pdf" );
+        -e $src or die "Error: file $src does not exist\n";
 
         # use two arg open method to get shell redirection to stdout
-        open my $text, "PDFTOTEXT -layout $src.pdf - |"
+        open my $text, "PDFTOTEXT -layout $src - |"
           or die "unable to open PDFTOTEXT: $!";
 
         my $href = $pdf_ref->{$key};
@@ -517,8 +527,20 @@ sub best_sector_times
 # DATABASE
 sub db_connect
 {
+    my $src = 'dbi:SQLite:dbname=';
+
+    if (defined $db_path) {
+        $src .= $db_path;
+    }
+    elsif (defined (my $env_file = $ENV{F1_TIMING_DB_PATH})) {
+        $src .= $env_file;
+    }
+    else {
+        $src .= DB_PATH;
+    }
+
     unless ( $dbh and $dbh->ping ) {
-        $dbh = DBI->connect( $data_source, $user, $pwd )
+        $dbh = DBI->connect( $src, DB_USER, DB_PWD )
           or die $DBI::errstr;
         $dbh->{AutoCommit} = 0;
         $dbh->{RaiseError} = 1;
@@ -813,7 +835,7 @@ Parse PDF(s) and update database. The required value is either the three
 letter abbreviation as used by the FIA for each race e.g., 'gbr' for the
 British Grand Prix, or the filename of an individual PDF without the file
 suffix e.g., chn-race-analysis. The race codes can be obtained using the
-'calendar' option, below.
+I<calendar> option, below.
 
 The filepath for the required PDF is defined in the script variable
 docs_dir', to which the current year is added e.g, if docs_dir is set to
@@ -832,5 +854,24 @@ Search <path> for timing PDFs instead of path contained in the script
 
 Display race calendar for current year, or if the optional year is provided,
 for that year.
+
+=back
+
+=head1 ENVIRONMENT VARIABLES
+
+The following environment variables are recognized, and take precedence over
+the equivalent script variables.
+
+=over 8
+
+=item I<F1_TIMING_DOCS_DIR>
+
+Source directory searched for FIA PDF timing files.
+
+=item I<F1_TIMING_DB_PATH>
+
+Path to SQLite database file.
+
+=back
 
 =cut
