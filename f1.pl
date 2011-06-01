@@ -17,6 +17,8 @@ use warnings;
 my $docs_dir    = "$ENV{HOME}/Documents/F1/";
 my $timing_base = 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
 my $timing_page = 'timing.aspx';
+# old FIA web page
+#  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 
 # Database variables
 my $dbfile      = "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
@@ -27,34 +29,33 @@ my $user        = q{};
 # eternal program path
 use constant PDFTOTEXT => '/usr/local/bin/pdftotext';
 
-# old FIA web page
-#$timing_base =
-#  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
-
 # Database handle
 my $dbh = undef;
 
-# command line option variables
-my $quiet    = 1;
+# comand line option variables
+my $timing   = undef;
+my $update   = undef;
+my $calendar = undef;
+my $verbose  = 0;
 my $database = q{};
 my $help     = 0;
 my $man      = 0;
-my $update   = undef;
+# test/debug
+my $debug    = 0;
 my $test     = 0;
-my $timing   = undef;
-my $dump     = 0;
 
 Getopt::Long::Configure qw( no_auto_abbrev bundling);
 GetOptions(
-    'help'       => \$help,
-    'man'        => \$man,
-    'database=s' => \$database,
-    'update=s'   => \$update,
-    'u=s'        => \$update,
     'timing:s'   => \$timing,
     't:s'        => \$timing,
+    'update=s'   => \$update,
+    'u=s'        => \$update,
+    'c:i'        => \$calendar,
+    'database=s' => \$database,
+    'help'       => \$help,
+    'man'        => \$man,
     'test'       => \$test,
-    'dump'       => \$dump,
+    'debug'      => \$debug,
 ) or pod2usage(2);
 
 pod2usage(1) if $help;
@@ -74,109 +75,15 @@ my $timeofday_re  = '\d\d:\d\d:\d\d';
 my $nat_re        = '[A-Z]{3}';
 my $gap_re        = '\d{1,2}\.\d\d\d';
 
-# map PDFs to parsing sub-routines and database tables
-my %pdf = (
+# PDF mappings
+my $pdf_href = undef;
 
-    # Practice
-    'session1-classification' => {
-        parser => \&practice_session_classification,
-        table  => 'practice_1_classification',
-    },
-    'session1-times' => {
-        parser   => \&time_sheet,
-        table    => 'practice_1_lap_time',
-        fk_table => 'practice_1_driver',
-    },
-    'session2-classification' => {
-        parser => \&practice_session_classification,
-        table  => 'practice_2_classification',
-    },
-    'session2-times' => {
-        parser   => \&time_sheet,
-        table    => 'practice_2_lap_time',
-        fk_table => 'practice_2_driver',
-    },
-    'session3-classification' => {
-        parser => \&practice_session_classification,
-        table  => 'practice_3_classification',
-    },
-    'session3-times' => {
-        parser   => \&time_sheet,
-        table    => 'practice_3_lap_time',
-        fk_table => 'practice_3_driver',
-    },
-
-    # Qualifying
-    'qualifying-sectors' => {
-        parser => \&best_sector_times,
-        table  => 'qualifying_best_sector_time',
-    },
-    'qualifying-speeds' => {
-        parser => \&maximum_speeds,
-        table  => 'qualifying_maximum_speed',
-    },
-    'qualifying-times' => {
-        parser   => \&time_sheet,
-        table    => 'qualifying_lap_time',
-        fk_table => 'qualifying_driver',
-    },
-    'qualifying-trap' => {
-        parser => \&speed_trap,
-        table  => 'qualifying_speed_trap',
-    },
-
-    # Race
-    'race-analysis' => {
-        parser   => \&time_sheet,
-        table    => 'race_lap_analysis',
-        fk_table => 'race_driver',
-    },
-    'race-grid' => {
-        parser => \&provisional_starting_grid,
-        table  => 'race_grid',
-    },
-    'race-history' => {
-        parser => \&race_history_chart,
-        table  => 'race_history',
-    },
-    'race-laps' => {
-        parser => \&race_fastest_laps,
-        table  => 'race_fastest_lap',
-    },
-    'race-sectors' => {
-        parser => \&best_sector_times,
-        table  => 'race_best_sector_time',
-    },
-    'race-speeds' => {
-        parser => \&maximum_speeds,
-        table  => 'race_maximum_speed',
-    },
-    'race-summary' => {
-        parser => \&race_pit_stop_summary,
-        table  => 'race_pit_stop_summary',
-    },
-    'race-trap' => {
-        parser => \&speed_trap,
-        table  => 'race_speed_trap',
-    },
-
-    # TODO
-    #'qualifying-classification' => \&qualifying_session_classification,
-    #
-    # OTHERS
-    # 'race-chart'
-    # 'race-classification'
-);
 # Process command-line arguments
 #if ( defined $pause ) { $pause = 1 unless $pause; }
-
-if ($test) {
-#    yaml_hash();
-}
-
-if ( defined $timing ) {
-    get_timing();
-}
+if ( defined $timing ) { get_timing() }
+if ( defined $update ) { update_db($update) }
+if ( defined $calendar) { get_calendar($calendar) }
+#if ( defined $test) { yaml_hash() }
 
 # download timing PDFs from FIA website
 sub get_timing
@@ -219,6 +126,8 @@ sub get_timing
         $get_docs = [ grep /$re/, @$docs ];
     }
 
+    print Dumper $get_docs if $debug;
+
     my $race_dir = $docs_dir . $race;
 
     unless ( -d $race_dir ) {
@@ -259,28 +168,24 @@ sub get_timing
     }
 }
 
-# Update database from PDFs
-if ( defined $update ) {
-    update_db($update);
-}
-
 sub update_db
 {
     my $arg = shift;
 
     my ( $race, $timesheet, $pdf_ref );
+    my $pdf_map = get_pdf_map();
 
     ( my $len = length $arg ) >= 3
       or die "Please provide an update argument of at least 3 characters\n";
 
     if ( $len > 3 ) {
         ( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/;
-        $pdf_ref = { $timesheet => $pdf{$timesheet} }
+        $pdf_ref = { $timesheet => $pdf_map->{$timesheet} }
           or die "Timing document $arg not recognized\n";
     }
     else {
         $race    = $arg;
-        $pdf_ref = \%pdf;
+        $pdf_ref = $pdf_map;
     }
 
     my $race_dir = $docs_dir . "$race/";
@@ -302,7 +207,7 @@ sub update_db
             db_insert_array( $race_id, $fk_table, $fk_recs );
         }
 
-        print Dumper($recs) if $dump;
+        print Dumper($recs) if $debug;
 
         my $table = $href->{table};
 
@@ -700,19 +605,158 @@ sub get_doc_links
     return \@docs;
 }
 
+sub get_calendar
+{
+    my $year = shift;
+
+    my $sql =
+    "SELECT round, date, grand_prix, start, id FROM calendar";
+    my $dbh = db_connect();
+    my $recs= $dbh->selectall_arrayref($sql, { Slice =>{} });
+    
+    my ($rd, $date, $gp, $start, $id);
+
+format STDOUT_TOP =
+
+ rnd     date     grand prix        start  id
+-----------------------------------------------
+.
+
+format STDOUT =
+@||||@||||||||||||@<<<<<<<<<<<<<<<@||||||||@<<<
+$rd, $date,      $gp,             $start,  $id
+.
+
+    foreach my $rec (@$recs) {
+        $rd = $rec->{round};
+        $date = $rec->{date};
+        $gp = $rec->{grand_prix};
+        $start = $rec->{start};
+        $id = $rec->{id};
+        write;
+    }
+}
+
+sub get_pdf_map
+{
+    unless (defined $pdf_href) {
+        $pdf_href = {
+
+            # Practice
+            'session1-classification' => {
+                parser => \&practice_session_classification,
+                table  => 'practice_1_classification',
+            },
+            'session1-times' => {
+                parser   => \&time_sheet,
+                table    => 'practice_1_lap_time',
+                fk_table => 'practice_1_driver',
+            },
+            'session2-classification' => {
+                parser => \&practice_session_classification,
+                table  => 'practice_2_classification',
+            },
+            'session2-times' => {
+                parser   => \&time_sheet,
+                table    => 'practice_2_lap_time',
+                fk_table => 'practice_2_driver',
+            },
+            'session3-classification' => {
+                parser => \&practice_session_classification,
+                table  => 'practice_3_classification',
+            },
+            'session3-times' => {
+                parser   => \&time_sheet,
+                table    => 'practice_3_lap_time',
+                fk_table => 'practice_3_driver',
+            },
+
+            # Qualifying
+            'qualifying-sectors' => {
+                parser => \&best_sector_times,
+                table  => 'qualifying_best_sector_time',
+            },
+            'qualifying-speeds' => {
+                parser => \&maximum_speeds,
+                table  => 'qualifying_maximum_speed',
+            },
+            'qualifying-times' => {
+                parser   => \&time_sheet,
+                table    => 'qualifying_lap_time',
+                fk_table => 'qualifying_driver',
+            },
+            'qualifying-trap' => {
+                parser => \&speed_trap,
+                table  => 'qualifying_speed_trap',
+            },
+
+            # Race
+            'race-analysis' => {
+                parser   => \&time_sheet,
+                table    => 'race_lap_analysis',
+                fk_table => 'race_driver',
+            },
+            'race-grid' => {
+                parser => \&provisional_starting_grid,
+                table  => 'race_grid',
+            },
+            'race-history' => {
+                parser => \&race_history_chart,
+                table  => 'race_history',
+            },
+            'race-laps' => {
+                parser => \&race_fastest_laps,
+                table  => 'race_fastest_lap',
+            },
+            'race-sectors' => {
+                parser => \&best_sector_times,
+                table  => 'race_best_sector_time',
+            },
+            'race-speeds' => {
+                parser => \&maximum_speeds,
+                table  => 'race_maximum_speed',
+            },
+            'race-summary' => {
+                parser => \&race_pit_stop_summary,
+                table  => 'race_pit_stop_summary',
+            },
+            'race-trap' => {
+                parser => \&speed_trap,
+                table  => 'race_speed_trap',
+            },
+
+            # TODO
+            #'qualifying-classification' => \&qualifying_session_classification,
+            #
+            # OTHERS
+            # 'race-chart'
+            # 'race-classification'
+        };
+    }
+
+    return $pdf_href;
+} 
+
 # POD
 
 =head1 NAME
 
-sample - Using GetOpt::Long and Pod::Usage
+f1.pl - Download timing PDFs and update database
 
 =head1 SYNOPSIS
 
 sample [options] [file ...]
 
-Options:
--help brief help message
--man full documentation
+ Options:
+    --help              brief help message
+    --man               full documentation
+    --timing[=<value>]  download timing PDFs from FIA website
+    --update[=<pdf>]    parse PDFs and update database     
+    
+=head1 DESCRIPTION
+
+B<f1.pl> will read the given input file(s) and do something
+useful with the contents thereof.
 
 =head1 OPTIONS
 
@@ -726,11 +770,67 @@ Print a brief help message and exits.
 
 Prints the manual page and exits.
 
+=item B<-t, --timing[=E<lt>valueE<gt>]>
+
+Download latest timing PDF files from the FIA website.
+Recognized optional values are:
+
+=over 4
+
+=item p1, p2, or p3   - individual practice sessions
+
+=item p               - all practice sessions
+
+=item q               - qualifying
+
+=item r or sun        - race
+
+=item thu or fri      - practice sessions 1 and 2
+
+=item sat             - practice session 3 and qualifying
+
 =back
 
-=head1 DESCRIPTION
+Examples:
 
-B<This program> will read the given input file(s) and do something
-useful with the contents thereof.
+=over 4
+
+=item --timing=thu - download Monaco practice session 1 & 2
+
+=item --timing=p3  - download practice session 3
+
+=item --timing     - download all available timing PDFs
+
+=item -t r         - download all race timimg PDFs
+
+=back
+
+=item
+
+=item B<-u, --update=E<lt>valueE<gt>>
+
+Parse PDF(s) and update database. The required value is either the three
+letter abbreviation as used by the FIA for each race e.g., 'gbr' for the
+British Grand Prix, or the filename of an individual PDF without the file
+suffix e.g., chn-race-analysis. The race codes can be obtained using the
+'calendar' option, below.
+
+The filepath for the required PDF is defined in the script variable
+docs_dir', to which the current year is added e.g, if docs_dir is set to
+F</home/username/F1> and the required timing document is mco-race-trap the
+full filepath will be F</home/username/F1/2011/mco-race-trap.pdf>.
+
+The search path can be changed on the command line with the docs-dir
+option, below.
+
+=item B<-d, --docs-dir=E<lt>pathE<gt>>
+
+Search <path> for timing PDFs instead of path contained in the script
+'docs_dir' variable.
+
+=item B<-c, --calendar[=E<lt>yearE<gt>]>
+
+Display race calendar for current year, or if the optional year is provided,
+for that year.
 
 =cut
