@@ -16,7 +16,9 @@ use warnings;
 
 # config variables
 use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/";
-use constant PDFTOTEXT   => '/usr/local/bin/pdftotext';
+use constant PARSER      => 'pdftotext';
+use constant EXPORTER    => 'sqlite3';
+use constant EXPORT_OPT  => '-list -separator , -header';
 use constant TIMING_BASE => 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
 use constant TIMING_PAGE => 'timing.aspx';
 # old FIA web page
@@ -27,12 +29,17 @@ use constant DB_PATH   => "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
 use constant DB_PWD    => q{};
 use constant DB_USER   => q{};
 
+# exports
+use constant EXPORTS => qw( race-lap-xtab );
+
 # database handle
 my $dbh = undef;
 
 # comand line option variables
 my $timing   = undef;
 my $update   = undef;
+my $export   = undef;
+my $race_id  = undef;
 my $calendar = undef;
 my $docs_dir = undef;
 my $verbose  = 0;
@@ -49,6 +56,9 @@ GetOptions(
     't:s'        => \$timing,
     'update=s'   => \$update,
     'u=s'        => \$update,
+    'export=s'   => \$export,
+    'e=s'        => \$export,
+    'race-id=s'  => \$race_id,
     'c:i'        => \$calendar,
     'db-path=s'  => \$db_path,
     'docs-dir=s' => \$docs_dir,
@@ -83,7 +93,9 @@ my $pdf_href = undef;
 if    ( defined $timing )  { get_timing() }
 elsif ( defined $update )  { update_db($update) }
 elsif ( defined $calendar) { get_calendar($calendar) }
-#if ( defined $test) { yaml_hash() }
+elsif ( defined $export)   { export($export, $race_id) }
+elsif ( defined $test) {
+}
 
 # download timing PDFs from FIA website
 sub get_timing
@@ -206,8 +218,8 @@ sub update_db
         -e $src or die "Error: file $src does not exist\n";
 
         # use two arg open method to get shell redirection to stdout
-        open my $text, "PDFTOTEXT -layout $src - |"
-          or die "unable to open PDFTOTEXT: $!";
+        open my $text, "PARSER -layout $src - |"
+          or die "unable to open " . PARSER . ": $!";
 
         my $href = $pdf_ref->{$key};
         my ( $recs, $fk_recs ) = $href->{parser}($text);
@@ -223,8 +235,34 @@ sub update_db
 
         db_insert_array( $race_id, $table, $recs );
         close $text
-          or die "bad PDFTOTEXT: $! $?";
+          or die "bad PARSER: $! $?";
     }
+}
+
+sub export {
+
+    my ($src, $race_id) = @_;
+
+    my $db  = get_db_source();
+    my $opt = EXPORT_OPT;
+    my $sql;
+
+    $src =~ s/-/_/g;
+    
+    if (defined $race_id) {
+        $sql = "SELECT * FROM $src WHERE race_id='$race_id';";
+    }
+    else {
+        $sql = "SELECT * FROM $src;";
+    }
+
+    open my $exporter, "|-", EXPORTER . " $opt $db"
+       or die "Unable to open " . EXPORTER . ": $!";
+
+    print $exporter $sql;
+
+    close $exporter
+        or die "Error closing " . EXPORTER . ": $!";   
 }
 
 sub race_history_chart
@@ -527,20 +565,9 @@ sub best_sector_times
 # DATABASE
 sub db_connect
 {
-    my $src = 'dbi:SQLite:dbname=';
-
-    if (defined $db_path) {
-        $src .= $db_path;
-    }
-    elsif (defined (my $env_file = $ENV{F1_TIMING_DB_PATH})) {
-        $src .= $env_file;
-    }
-    else {
-        $src .= DB_PATH;
-    }
-
     unless ( $dbh and $dbh->ping ) {
-        $dbh = DBI->connect( $src, DB_USER, DB_PWD )
+        my $db_source = 'dbi:SQLite:dbname=' . get_db_source();
+        $dbh = DBI->connect( $db_source, DB_USER, DB_PWD )
           or die $DBI::errstr;
         $dbh->{AutoCommit} = 0;
         $dbh->{RaiseError} = 1;
@@ -548,6 +575,23 @@ sub db_connect
     }
 
     return $dbh;
+}
+
+sub get_db_source
+{
+    my $src;
+
+    if (defined $db_path) {
+        $src = $db_path;
+    }
+    elsif (defined (my $env_file = $ENV{F1_TIMING_DB_PATH})) {
+        $src = $env_file;
+    }
+    else {
+        $src = DB_PATH;
+    }
+
+    return $src;
 }
 
 sub db_insert_array
@@ -837,8 +881,8 @@ British Grand Prix, or the filename of an individual PDF without the file
 suffix e.g., chn-race-analysis. The race codes can be obtained using the
 I<calendar> option, below.
 
-The filepath for the required PDF is defined in the script variable
-docs_dir', to which the current year is added e.g, if docs_dir is set to
+The filepath for the required PDF is defined in the script constant
+'docs_dir', to which the current year is added e.g, if docs_dir is set to
 F</home/username/F1> and the required timing document is mco-race-trap the
 full filepath will be F</home/username/F1/2011/mco-race-trap.pdf>.
 
@@ -847,20 +891,25 @@ option, below.
 
 =item B<-d, --docs-dir=E<lt>pathE<gt>>
 
-Search <path> for timing PDFs instead of path contained in the script
-'docs_dir' variable.
+Search <path> for timing PDFs. Over-rides the path contained in the script
+'docs_dir' constant and the environment variable I<F1_TIMING_DOCS_DIR>.
 
 =item B<-c, --calendar[=E<lt>yearE<gt>]>
 
 Display race calendar for current year, or if the optional year is provided,
 for that year.
 
+=item B<--db-path=E<lt>pathE<gt>>
+
+Filepath of SQLite database. Over-rides the path contained in the script
+'db_path' constant and the I<F1_TIMING_DB_PATH> environment variable.
+
 =back
 
 =head1 ENVIRONMENT VARIABLES
 
 The following environment variables are recognized, and take precedence over
-the equivalent script variables.
+the equivalent script constant.
 
 =over 8
 
