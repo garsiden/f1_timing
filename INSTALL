@@ -1,0 +1,23 @@
+pdftotext
+
+Windows
+
+webpage: http://www.foolabs.com/xpdf/download.html
+file: ftp://ftp.foolabs.com/pub/xpdf/xpdf-3.02pl5-win32.zip 
+
+Mac OSX
+webpage: http://mac.softpedia.com/get/Word-Processing/pdftotext-Installer-Package.shtml
+file: 
+or
+webpage: http://www.bluem.net/en/mac/others/
+file: http://www.bluem.net/files/pdftotext.dmg
+
+SQLite3
+http://www.sqlite.org/download.html
+
+SQLite Manager
+https://addons.mozilla.org/en-US/firefox/addon/sqlite-manager/
+
+Perl
+http://www.activestate.com/activeperl/downloads
+http://strawberryperl.com/
