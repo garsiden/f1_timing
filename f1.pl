@@ -574,6 +574,41 @@ sub best_sector_times
     return \@recs;
 }
 
+sub qualifying_classification
+{
+    my $text = shift;
+
+    my $regex =
+qr/($pos_re) +($no_re) +($driver_re) +((?:[A-Z][a-z]|[AT])$entrant_re?) +/;
+    $regex .=
+      qr/($laptime_re) +($lap_re) +(\d\d\d\.\d\d\d) +($timeofday_re)\s*/;
+    $regex .= qr/($laptime_re)? *($lap_re)? *($timeofday_re)?\s*/;
+    $regex .= qr/($laptime_re)? *($lap_re)? *($timeofday_re)?\s*/;
+
+    my @recs;
+
+    while (<$text>) {
+        if (/$regex/) {
+            push @recs,
+              {
+                'pos',     $1,  'no',      $2,  'driver',  $3,
+                'entrant', $4,  'q1_time', $5,  'q1_laps', $6,
+                'percent', $7,  'q1_tod',  $8,  'q2_time', $9,
+                'q2_laps', $10, 'q2_tod',  $11, 'q3_time', $12,
+                'q3_laps', $13, 'q3_tod',  $14,
+              };
+        }
+    }
+
+    print Dumper scalar @recs;
+
+    foreach (@recs) {
+        print $_->{driver}, "\n";
+    }
+
+    return \@recs;
+}
+
 # DATABASE
 sub db_connect
 {
@@ -756,18 +791,23 @@ sub get_export_map
 {
     my $export_href = {
         'race-lap-xtab' => {
-            src => 'race_lap_xtab',
-            param => 'Y',
-            pfield => 'race_id',,
-            desc => 'Desc 1',
+            src    => 'race_lap_xtab',
+            param  => 'Y',
+            pfield => 'race_id',
+            desc   => 'Desc 1',
         },
         'race-laps' => {
-            src => 'race_lap_hms',
-            param => 'Y',
+            src    => 'race_lap_hms',
+            param  => 'Y',
             pfield => 'race_id',
-            desc => 'Desc 2',
+            desc   => 'Desc 2',
         },
-    
+        'race-driver' => {
+            src    => 'race_driver',
+            param  => 'Y',
+            pfield => 'race_id',
+            desc   => 'Starting grid drivers',
+        },
 
     };
 
@@ -825,6 +865,10 @@ sub get_pdf_map
             'qualifying-trap' => {
                 parser => \&speed_trap,
                 table  => 'qualifying_speed_trap',
+            },
+            'qualifying-classification' => {
+                parser => \&qualifying_classification,
+                table  => 'qualifying_classification',
             },
 
             # Race
