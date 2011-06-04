@@ -16,18 +16,20 @@ use warnings;
 
 # config variables
 use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/";
-use constant PARSER      => 'pdftotext';
+use constant CONVERTER   => 'pdftotext';
+use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
 use constant EXPORT_OPT  => '-list -separator , -header';
 use constant TIMING_BASE => 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
 use constant TIMING_PAGE => 'timing.aspx';
+
 # old FIA web page
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 
 # database variables
-use constant DB_PATH   => "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
-use constant DB_PWD    => q{};
-use constant DB_USER   => q{};
+use constant DB_PATH => "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
+use constant DB_PWD  => q{};
+use constant DB_USER => q{};
 
 # exports
 use constant EXPORTS => qw( race-lap-xtab );
@@ -36,19 +38,21 @@ use constant EXPORTS => qw( race-lap-xtab );
 my $dbh = undef;
 
 # comand line option variables
-my $timing   = undef;
-my $update   = undef;
-my $export   = undef;
-my $race_id  = undef;
-my $calendar = undef;
-my $docs_dir = undef;
-my $verbose  = 0;
-my $db_path  = undef;
-my $help     = 0;
-my $man      = 0;
+my $timing     = undef;
+my $update     = undef;
+my $export     = undef;
+my $export_opt = undef;
+my $race_id    = undef;
+my $calendar   = undef;
+my $docs_dir   = undef;
+my $verbose    = 0;
+my $db_path    = undef;
+my $help       = 0;
+my $man        = 0;
+
 # test/debug
-my $debug    = 0;
-my $test     = 0;
+my $debug = 0;
+my $test  = 0;
 
 Getopt::Long::Configure qw( no_auto_abbrev bundling);
 GetOptions(
@@ -58,6 +62,7 @@ GetOptions(
     'u=s'        => \$update,
     'export=s'   => \$export,
     'e=s'        => \$export,
+    'o=s'        => \$export_opt,
     'race-id=s'  => \$race_id,
     'c:i'        => \$calendar,
     'db-path=s'  => \$db_path,
@@ -90,11 +95,15 @@ my $pdf_href = undef;
 
 # Process command-line arguments
 #if ( defined $pause ) { $pause = 1 unless $pause; }
-if    ( defined $timing )  { get_timing() }
-elsif ( defined $update )  { update_db($update) }
-elsif ( defined $calendar) { get_calendar($calendar) }
-elsif ( defined $export)   { export($export, $race_id) }
-elsif ( defined $test) {
+# set defaults
+unless ( defined $export_opt ) { $export_opt = EXPORT_OPT }
+
+if    ( defined $timing )   { get_timing() }
+elsif ( defined $update )   { update_db($update) }
+elsif ( defined $calendar ) { show_calendar($calendar) }
+elsif ( defined $export )   { export( $export, $race_id ) }
+elsif ( defined $test ) {
+    show_exports();
 }
 
 # download timing PDFs from FIA website
@@ -141,7 +150,7 @@ sub get_timing
     print Dumper $get_docs if $debug;
 
     my $src_dir = get_docs_dir();
-    my $race_dir = catdir($src_dir , $race);
+    my $race_dir = catdir( $src_dir, $race );
 
     unless ( -d $race_dir ) {
         mkdir $race_dir
@@ -151,8 +160,8 @@ sub get_timing
 
     foreach (@$get_docs) {
         ( my $pdf ) = /([a-z123-]+.pdf$)/;
-        my $dest = catfile($race_dir, $pdf);
-        print Dumper $dest if $debug;;
+        my $dest = catfile( $race_dir, $pdf );
+        print Dumper $dest if $debug;
         if ( $check_exists and -f $dest ) {
             print "File $dest already exists.\n";
             print "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel) ";
@@ -184,9 +193,9 @@ sub get_timing
 
 sub get_docs_dir
 {
-    if    (defined $docs_dir) { return $docs_dir }
-    elsif (defined (my $env = $ENV{F1_TIMING_DOCS_DIR})) { return $env }
-    else  { return DOCS_DIR }
+    if ( defined $docs_dir ) { return $docs_dir }
+    elsif ( defined( my $env = $ENV{F1_TIMING_DOCS_DIR} ) ) { return $env }
+    else                                                    { return DOCS_DIR }
 }
 
 sub update_db
@@ -218,8 +227,8 @@ sub update_db
         -e $src or die "Error: file $src does not exist\n";
 
         # use two arg open method to get shell redirection to stdout
-        open my $text, "PARSER -layout $src - |"
-          or die "unable to open " . PARSER . ": $!";
+        open my $text, CONVERTER . ' ' . CONVERT_OPT . " $src - |"
+          or die 'unable to open ' . CONVERTER . ": $!";
 
         my $href = $pdf_ref->{$key};
         my ( $recs, $fk_recs ) = $href->{parser}($text);
@@ -235,53 +244,55 @@ sub update_db
 
         db_insert_array( $race_id, $table, $recs );
         close $text
-          or die "bad PARSER: $! $?";
+          or die 'Unable to close ' . CONVERTER . ": $! $?";
     }
 }
 
-sub export {
+sub export
+{
+    my ( $src, $race_id ) = @_;
 
-    my ($src, $race_id) = @_;
-
-    my $db  = get_db_source();
-    my $opt = EXPORT_OPT;
+    my $db = get_db_source();
     my $sql;
 
     $src =~ s/-/_/g;
-    
-    if (defined $race_id) {
+
+    if ( defined $race_id ) {
         $sql = "SELECT * FROM $src WHERE race_id='$race_id';";
     }
     else {
         $sql = "SELECT * FROM $src;";
     }
 
-    open my $exporter, "|-", EXPORTER . " $opt $db"
-       or die "Unable to open " . EXPORTER . ": $!";
+    open my $exporter, "|-", EXPORTER . " $export_opt $db"
+      or die "Unable to open " . EXPORTER . ": $!";
 
     print $exporter $sql;
 
     close $exporter
-        or die "Error closing " . EXPORTER . ": $!";   
+      or die "Error closing " . EXPORTER . ": $!";
 }
 
 sub race_history_chart
 {
     my $text = shift;
 
-#    my $header_re  = qr/($no_re)\s+($driver_re)(?: {2,}|\n)/;
+    #    my $header_re  = qr/($no_re)\s+($driver_re)(?: {2,}|\n)/;
     my $header_re = qr/(?:LAP )(\d{1,2})(?:    |\n)/;
-    # my $laptime_re = qr/($lap_re)(?:PIT|\d [LAPS]{3,4}|\d{1,3}\.\d{3})($laptime_re)\s?/;
-    #my $laptime_re = qr/(\d{1,2}) ?(PIT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
-    my $laptime_re = qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(P)?(?:IT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
+
+# my $laptime_re = qr/($lap_re)(?:PIT|\d [LAPS]{3,4}|\d{1,3}\.\d{3})($laptime_re)\s?/;
+#my $laptime_re = qr/(\d{1,2}) ?(PIT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
+    my $laptime_re =
+qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(P)?(?:IT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
     my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
     my @fields = qw(lap no  pit time);
     my @drivers;
     my $laptime;
 
-    HEADER:
+  HEADER:
     while (<$text>) {
         if ( my @laps = /$header_re/g ) {
+
             #print Dumper \@laps;
             # skip empty lines
             do { $line = <$text> } until $line !~ /^\n$/;
@@ -292,7 +303,7 @@ sub race_history_chart
                 push @col_pos, pos $line;
             }
 
-            TIMES:
+          TIMES:
             while (<$text>) {
                 next HEADER if /^\f/;
                 redo HEADER if /$header_re/;
@@ -306,12 +317,12 @@ sub race_history_chart
                             substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
                         {
                             my %temp;
-                            my ($n, $p, $t);
-                            if (defined $1) {
-                                ($n, $t) = ($1, $3);
+                            my ( $n, $p, $t );
+                            if ( defined $1 ) {
+                                ( $n, $t ) = ( $1, $3 );
                             }
                             else {
-                                ($n, $p, $t) = ($4, $5, $6);
+                                ( $n, $p, $t ) = ( $4, $5, $6 );
                             }
                             $laptime = "00:0$t";
                             @temp{@fields} = ( $laps[$idx], $n, $p, $laptime );
@@ -433,14 +444,15 @@ sub time_sheet
                             substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
                         {
                             my %temp;
-                            my ($l, $p, $t) = ($1, $2, $3);
-                            if ($t =~ /\d\d:\d\d:\d\d/ ) {
+                            my ( $l, $p, $t ) = ( $1, $2, $3 );
+                            if ( $t =~ /\d\d:\d\d:\d\d/ ) {
                                 $laptime = "$t.000";
                             }
                             else {
                                 $laptime = "00:0$t";
                             }
-                            @temp{@fields} = ( $nos[$idx]->{'no'}, $l, $p, $laptime );
+                            @temp{@fields} =
+                              ( $nos[$idx]->{'no'}, $l, $p, $laptime );
                             push @recs, \%temp;
                         }
                         $prev_col = $col;
@@ -581,10 +593,10 @@ sub get_db_source
 {
     my $src;
 
-    if (defined $db_path) {
+    if ( defined $db_path ) {
         $src = $db_path;
     }
-    elsif (defined (my $env_file = $ENV{F1_TIMING_DB_PATH})) {
+    elsif ( defined( my $env_file = $ENV{F1_TIMING_DB_PATH} ) ) {
         $src = $env_file;
     }
     else {
@@ -671,41 +683,100 @@ sub get_doc_links
     return \@docs;
 }
 
-sub get_calendar
+sub show_calendar
 {
     my $year = shift;
 
-    my $sql =
-    "SELECT round, date, grand_prix, start, id FROM calendar";
-    my $dbh = db_connect();
-    my $recs= $dbh->selectall_arrayref($sql, { Slice =>{} });
-    
-    my ($rd, $date, $gp, $start, $id);
+    if ( defined $year ) { $year = 1900 + (localtime)[5] unless $year }
 
-format STDOUT_TOP =
+    my $sql = <<'SQL';
+SELECT round, date, grand_prix, start, id
+FROM calendar
+WHERE season=?
+ORDER BY round
+SQL
+
+    my $dbh = db_connect();
+    my $recs = $dbh->selectall_arrayref( $sql, { Slice => {} }, ($year) );
+
+    my ( $rd, $date, $gp, $start, $id );
+
+format CALENDAR_TOP =
 
  rnd     date     grand prix        start  id
 -----------------------------------------------
 .
 
-format STDOUT =
+format CALENDAR =
 @||||@||||||||||||@<<<<<<<<<<<<<<<@||||||||@<<<
 $rd, $date,      $gp,             $start,  $id
 .
 
+    $^ = 'CALENDAR_TOP';
+    $~ = 'CALENDAR';
+
     foreach my $rec (@$recs) {
-        $rd = $rec->{round};
-        $date = $rec->{date};
-        $gp = $rec->{grand_prix};
+        $rd    = $rec->{round};
+        $date  = $rec->{date};
+        $gp    = $rec->{grand_prix};
         $start = $rec->{start};
-        $id = $rec->{id};
+        $id    = $rec->{id};
         write;
     }
 }
 
+sub show_exports
+{
+    my $href = get_export_map();
+    my ($value, $param, $field, $desc);
+
+format EXPORTS_TOP =
+
+ value          param? field         description
+--------------- ------ ------------- -----------------------------------------
+.
+
+format EXPORTS=
+ @<<<<<<<<<<<<<@|||||||@<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+ $value,       $param, $field,       $desc    
+.
+
+    use FileHandle;
+    STDOUT->format_name('EXPORTS');
+    STDOUT->format_top_name('EXPORTS_TOP');
+
+    for my $k ( keys %$href) {
+       $value = $k;
+       ($param, $field, $desc)  = @{$href->{$k}}{qw(param pfield desc) };
+       write;
+   }
+}
+
+sub get_export_map
+{
+    my $export_href = {
+        'race-lap-xtab' => {
+            src => 'race_lap_xtab',
+            param => 'Y',
+            pfield => 'race_id',,
+            desc => 'Desc 1',
+        },
+        'race-laps' => {
+            src => 'race_lap_hms',
+            param => 'Y',
+            pfield => 'race_id',
+            desc => 'Desc 2',
+        },
+    
+
+    };
+
+    return $export_href;
+}
+
 sub get_pdf_map
 {
-    unless (defined $pdf_href) {
+    unless ( defined $pdf_href ) {
         $pdf_href = {
 
             # Practice
@@ -801,7 +872,7 @@ sub get_pdf_map
     }
 
     return $pdf_href;
-} 
+}
 
 # POD
 
@@ -882,7 +953,7 @@ suffix e.g., chn-race-analysis. The race codes can be obtained using the
 I<calendar> option, below.
 
 The filepath for the required PDF is defined in the script constant
-'docs_dir', to which the current year is added e.g, if docs_dir is set to
+I<DOCS_DIR>, to which the current year is added e.g, if DOCS_DIR is set to
 F</home/username/F1> and the required timing document is mco-race-trap the
 full filepath will be F</home/username/F1/2011/mco-race-trap.pdf>.
 
@@ -892,7 +963,7 @@ option, below.
 =item B<-d, --docs-dir=E<lt>pathE<gt>>
 
 Search <path> for timing PDFs. Over-rides the path contained in the script
-'docs_dir' constant and the environment variable I<F1_TIMING_DOCS_DIR>.
+I<DOCS_DIR> constant and the environment variable I<F1_TIMING_DOCS_DIR>.
 
 =item B<-c, --calendar[=E<lt>yearE<gt>]>
 
@@ -902,7 +973,23 @@ for that year.
 =item B<--db-path=E<lt>pathE<gt>>
 
 Filepath of SQLite database. Over-rides the path contained in the script
-'db_path' constant and the I<F1_TIMING_DB_PATH> environment variable.
+I<DB_PATH> constant and the I<F1_TIMING_DB_PATH> environment variable.
+
+=item B<-e, --export[=E<lt>valueE<gt>>
+
+Export data in CSV format. Redirect to a file for loading into a spreadsheet or
+another database. The <value> is the source view or table; omit the value to
+display a list of possible sources.
+
+=over 4
+
+=item Examples:
+
+=item --export=calendar                 - print calendar to stdout
+
+=item --export=race-lap-xtab > laps.csv - export laptimes to CSV file
+
+=back
 
 =back
 
@@ -922,5 +1009,10 @@ Source directory searched for FIA PDF timing files.
 Path to SQLite database file.
 
 =back
+
+=head1 BUGS
+
+The program I<pdftotext> sometimes is unable to extract the text from the
+race-grid.pdf file.
 
 =cut
