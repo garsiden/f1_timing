@@ -586,18 +586,12 @@ qr/($pos_re) +($no_re) +($driver_re) +((?:[A-Z][a-z]|[AT])$entrant_re?) +/;
     $regex .= qr/($laptime_re)? *($lap_re)? *($timeofday_re)?\s*/;
 
     my @recs;
+    my @fields = qw( pos no driver entrant q1_time q1_laps percent q1_tod
+    q2_time q2_laps q2_tod q3_time q3_laps q3_tod);
 
     while (<$text>) {
-        if (/$regex/) {
-            push @recs,
-              {
-                'pos',     $1,  'no',      $2,  'driver',  $3,
-                'entrant', $4,  'q1_time', $5,  'q1_laps', $6,
-                'percent', $7,  'q1_tod',  $8,  'q2_time', $9,
-                'q2_laps', $10, 'q2_tod',  $11, 'q3_time', $12,
-                'q3_laps', $13, 'q3_tod',  $14,
-              };
-        }
+        my %rec;
+        if (@rec{@fields} = /$regex/) { push @recs, \%rec }
     }
 
     print Dumper scalar @recs;
