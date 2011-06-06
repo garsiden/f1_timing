@@ -14,7 +14,7 @@ use strict;
 use warnings;
 
 # config variables
-use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/";
+use constant DOCS_DIR    => "$ENV{HOME}/My Documents/F1/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
@@ -26,7 +26,7 @@ use constant TIMING_PAGE => 'timing.aspx';
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 
 # database variables
-use constant DB_PATH => "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
+use constant DB_PATH => "$ENV{HOME}/My Documents/F1/db/f1_timing.db3";
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
@@ -160,13 +160,13 @@ sub get_timing
         print Dumper $dest if $debug;
         if ( $check_exists and -f $dest ) {
             print "File $dest already exists.\n";
-            print "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel) ";
+            print "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel) \n";
             ReadMode 'cbreak';
             my $answer = lc ReadKey(0);
             ReadMode 'normal';
 
             while ( index( 'ynac', $answer ) < 0 ) {
-                print "\nPlease enter [y]es/[n]o/[a]ll/[c]ancel)? ";
+                print "\nPlease enter [y]es/[n]o/[a]ll/[c]ancel)? \n";
                 ReadMode 'cbreak';
                 $answer = lc ReadKey(0);
                 ReadMode 'normal';
@@ -223,7 +223,7 @@ sub update_db
         -e $src or die "Error: file $src does not exist\n";
 
         # use two arg open method to get shell redirection to stdout
-        open my $text, CONVERTER . ' ' . CONVERT_OPT . " $src - |"
+        open my $text, CONVERTER . ' ' . CONVERT_OPT . " \"$src\" - |"
           or die 'unable to open ' . CONVERTER . ": $!";
 
         my $href = $pdf_ref->{$key};
@@ -260,7 +260,7 @@ sub export
         $sql = "SELECT * FROM $src;";
     }
 
-    open my $exporter, "|-", EXPORTER . " $export_opt $db"
+    open my $exporter, "|-", EXPORTER . " $export_opt \"$db\""
       or die "Unable to open " . EXPORTER . ": $!";
 
     print $exporter $sql;
