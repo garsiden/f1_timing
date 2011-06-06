@@ -11,9 +11,18 @@ TODO
  5. Race lap analysis crosstab
 
  6. Decide on whether to use YAML
+        DONE - no YAML
 
  7. Tidy up config variables
 
  8. Parse starting grid
 
  9. Look at un-parsed PDFs
+
+10. Query ideas:
+        +/- laptime compared to average of winner (as per JA)
+        driver/team standings
+        race schedule
+        race summary (podiums, fastest lap, race time, fastest pit stop)
+
+11. Correct regex for DI RESTA for race-grid.pdf

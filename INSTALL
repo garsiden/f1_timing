@@ -21,3 +21,14 @@ https://addons.mozilla.org/en-US/firefox/addon/sqlite-manager/
 Perl
 http://www.activestate.com/activeperl/downloads
 http://strawberryperl.com/
+
+Perl modules
+
+LWP::Simple
+HTML::LinkExtor
+DBD::SQLite
+Term::ReadKey
+
+perl -MCPAN -e "install 'Some::Module'"
+
+
