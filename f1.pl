@@ -3,16 +3,15 @@
 use DBI;
 use LWP::Simple;
 use HTML::LinkExtor;
+use Term::ReadKey;
+# core modules
 use Getopt::Long;
 use Pod::Usage;
 use Data::Dumper;
-use Term::ReadKey;
 use File::Spec::Functions;
 
 use strict;
 use warnings;
-
-# parse FIA F1 timing PDFs
 
 # config variables
 use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/";
@@ -30,9 +29,6 @@ use constant TIMING_PAGE => 'timing.aspx';
 use constant DB_PATH => "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
-
-# exports
-use constant EXPORTS => qw( race-lap-xtab );
 
 # database handle
 my $dbh = undef;
@@ -297,7 +293,7 @@ qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(P)?(?:IT
             # skip empty lines
             do { $line = <$text> } until $line !~ /^\n$/;
 
-            # split page into upto 5 lap columns
+            # split page into up to 5 lap columns
             @col_pos = ();
             while ( $line =~ m/(NO +GAP +TIME\s+)/g ) {
                 push @col_pos, pos $line;
@@ -316,7 +312,6 @@ qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(P)?(?:IT
                         while (
                             substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
                         {
-                            my %temp;
                             my ( $n, $p, $t );
                             if ( defined $1 ) {
                                 ( $n, $t ) = ( $1, $3 );
@@ -324,8 +319,8 @@ qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(P)?(?:IT
                             else {
                                 ( $n, $p, $t ) = ( $4, $5, $6 );
                             }
-                            $laptime = "00:0$t";
-                            @temp{@fields} = ( $laps[$idx], $n, $p, $laptime );
+                            my %temp;
+                            @temp{@fields} = ( $laps[$idx], $n, $p, "00:0$t");
                             push @recs, \%temp;
                         }
                         $prev_col = $col;
@@ -343,17 +338,17 @@ sub provisional_starting_grid
 {
     my $text = shift;
 
-    my $odd          = qr/($pos_re) +($no_re) +($driver_re)\s+($laptime_re)?/;
-    my $even         = qr/($no_re) +($driver_re) +($laptime_re)? +($pos_re)/;
-    my $entrant_line = qr/^ +($entrant_re)\s+/;
+    my $left =
+      qr/($pos_re) +($no_re) +($driver_re)\**(?: {2,}|\n)($laptime_re)?/;
+    my $right        = qr/($no_re) +($driver_re)\** +($laptime_re)? +($pos_re)/;
+    my $entrant_line = qr/^ +($entrant_re)/;
     my ( $pos, $no, $driver, $time, $entrant, @recs );
 
     while (<$text>) {
-        if (   ( ( $pos, $no, $driver, $time ) = /$odd/ )
-            || ( ( $no, $driver, $time, $pos ) = /$even/ ) )
+        if (   ( ( $pos, $no, $driver, $time ) = /$left/ )
+            || ( ( $no, $driver, $time, $pos ) = /$right/ ) )
         {
             ($entrant) = ( <$text> =~ /$entrant_line/ );
-            $entrant =~ s/\s+$//;
             push @recs,
               {
                 'pos',     $pos,     'no',   $no, 'driver', $driver,
@@ -362,6 +357,7 @@ sub provisional_starting_grid
         }
     }
 
+    foreach (@recs) { print $$_{driver}, "\n" }
     return \@recs;
 }
 
@@ -390,8 +386,7 @@ sub race_pit_stop_summary
 
     while (<$text>) {
         my %hash;
-        next unless ( @hash{@fields} = /$regex/ );
-        push @recs, \%hash;
+        push @recs, \%hash if ( @hash{@fields} = /$regex/ );
     }
 
     return \@recs;
@@ -407,6 +402,7 @@ sub time_sheet
 
     my $header_re  = qr/($no_re)\s+($driver_re)(?: {2,}|\n)/;
     my $laptime_re = qr/($lap_re) *(P)? +($timeofday_re|$laptime_re)\s?/;
+    my $tod_re = qr/$timeofday_re/;
     my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
     my @fields = qw(no lap pit time);
     my @drivers;
@@ -443,14 +439,9 @@ sub time_sheet
                         while (
                             substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
                         {
-                            my %temp;
                             my ( $l, $p, $t ) = ( $1, $2, $3 );
-                            if ( $t =~ /\d\d:\d\d:\d\d/ ) {
-                                $laptime = "$t.000";
-                            }
-                            else {
-                                $laptime = "00:0$t";
-                            }
+                            $laptime = $t =~ /$tod_re/ ? "$t.000" : "00:0$t";
+                            my %temp;
                             @temp{@fields} =
                               ( $nos[$idx]->{'no'}, $l, $p, $laptime );
                             push @recs, \%temp;
@@ -481,8 +472,7 @@ qr/($laptime_re)? *($lap_re) *($gap_re)? *($kph_re)? *($timeofday_re)?\s+/;
 
     while (<$text>) {
         my %hash;
-        next unless ( @hash{@fields} = /$regex/ );
-        push @recs, \%hash;
+        if ( @hash{@fields} = /$regex/ ) { push @recs, \%hash }
     }
 
     return \@recs;
@@ -494,6 +484,35 @@ sub practice_session_classification
     my $recs = classification( @_, @fields );
 
     return $recs;
+}
+
+sub qualifying_classification
+{
+    my $text = shift;
+
+    my $percent_re = '\d\d\d\.\d\d\d';
+    my $laptime_re = "$laptime_re|DN[FS]";
+    my $regex = qr/($pos_re)? +($no_re)(?: +[A-Z].*?)/;
+    $regex .= qr/($laptime_re) *($lap_re)? *($percent_re)? *($timeofday_re)?\s*/;
+    $regex .= qr/($laptime_re)? *($lap_re)? *($timeofday_re)?\s*/ x 2;
+
+    print Dumper $regex if $debug;
+
+    my @recs;
+    my @fields = qw( pos no q1_time q1_laps percent q1_tod
+      q2_time q2_laps q2_tod q3_time q3_laps q3_tod);
+
+    while (<$text>) {
+        last if /POLE POSITION LAP/;
+        my %rec;
+        if ( @rec{@fields} = /$regex/ ) { push @recs, \%rec }
+    }
+
+    print Dumper scalar @recs if $debug;
+    foreach (@recs) {
+        print $$_{no}, "\n";
+    }
+    return \@recs;
 }
 
 sub speed_trap
@@ -508,8 +527,7 @@ sub speed_trap
 
     while (<$text>) {
         my %hash;
-        next unless ( @hash{@fields} = /$regex/ );
-        push @recs, \%hash;
+        if ( @hash{@fields} = /$regex/ )  { push @recs, \%hash }
     }
 
     return \@recs;
@@ -574,35 +592,6 @@ sub best_sector_times
     return \@recs;
 }
 
-sub qualifying_classification
-{
-    my $text = shift;
-
-    my $regex =
-qr/($pos_re) +($no_re) +($driver_re) +((?:[A-Z][a-z]|[AT])$entrant_re?) +/;
-    $regex .=
-      qr/($laptime_re) +($lap_re) +(\d\d\d\.\d\d\d) +($timeofday_re)\s*/;
-    $regex .= qr/($laptime_re)? *($lap_re)? *($timeofday_re)?\s*/;
-    $regex .= qr/($laptime_re)? *($lap_re)? *($timeofday_re)?\s*/;
-
-    my @recs;
-    my @fields = qw( pos no driver entrant q1_time q1_laps percent q1_tod
-    q2_time q2_laps q2_tod q3_time q3_laps q3_tod);
-
-    while (<$text>) {
-        my %rec;
-        if (@rec{@fields} = /$regex/) { push @recs, \%rec }
-    }
-
-    print Dumper scalar @recs;
-
-    foreach (@recs) {
-        print $_->{driver}, "\n";
-    }
-
-    return \@recs;
-}
-
 # DATABASE
 sub db_connect
 {
@@ -656,7 +645,6 @@ sub db_insert_array
         my $stmt = sprintf "INSERT INTO %s (race_id, %s) VALUES (?, %s)",
           $table, join( ', ', @keys ), join( ', ', ('?') x scalar @keys );
 
-        #print $stmt, "\n";
         my $sth = $dbh->prepare($stmt);
 
         my $tuple_fetch = sub {
@@ -676,7 +664,7 @@ sub db_insert_array
     };
     if ($@) {
         print "Table: $table\n";
-        print Dumper @tuple_status;
+        print Dumper \@tuple_status;
         warn "Transaction aborted because: $@";
         eval { $dbh->rollback };
     }
@@ -1050,7 +1038,18 @@ Path to SQLite database file.
 
 =head1 BUGS
 
-The program I<pdftotext> sometimes is unable to extract the text from the
-race-grid.pdf file.
+Some documents cannot be converted to text by pdftotext. These are typically
+the facsimile type documents such as the provisional grid and qualifying
+classification which are signed by the stewards.
+
+The regular expressions used to parse the text may fail when there are unusual
+race events or anything else that changes the format of the PDFs.
+
+Because of the way that SQLite stores time data there may be rounding errors
+when performing time calculations in SQL queries e.g., summing lap times.
+
+=head1 AUTHOR
+
+Nigel Garside, nigel.garside@gmail.com
 
 =cut
