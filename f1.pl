@@ -223,7 +223,9 @@ sub update_db
         -e $src or die "Error: file $src does not exist\n";
 
         # use two arg open method to get shell redirection to stdout
-        open my $text, CONVERTER . ' ' . CONVERT_OPT . " \"$src\" - |"
+        my $pipe_cmd = qq<"@{[CONVERTER]}" @{[CONVERT_OPT]} "$src" - |>;
+        #CONVERTER . ' ' . CONVERT_OPT . " \"$src\" - |"
+        open my $text, $pipe_cmd
           or die 'unable to open ' . CONVERTER . ": $!";
 
         my $href = $pdf_ref->{$key};
@@ -260,7 +262,11 @@ sub export
         $sql = "SELECT * FROM $src;";
     }
 
-    open my $exporter, "|-", EXPORTER . " $export_opt \"$db\""
+    my $pipe_cmd = qq<"@{[EXPORTER]}" $export_opt "$db">;
+
+    my $cmd = qq <"> . EXPORTER. qq <" $export_opt "$db">;
+
+    open my $exporter, "|-", $pipe_cmd
       or die "Unable to open " . EXPORTER . ": $!";
 
     print $exporter $sql;
