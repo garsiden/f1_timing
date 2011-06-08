@@ -1,0 +1,7 @@
+deletion of records before insert (within transaction)
+
+    Rounding errors using SQLite julian time - suggest PostgreSQL instead or
+    export CSV for analysis with spreadsheet
+
+   Add race details for each season into race table. DB will hold more than
+   one seasons data - unless comparing separate db for each?
