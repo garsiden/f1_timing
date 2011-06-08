@@ -56,8 +56,8 @@ Getopt::Long::Configure qw( no_auto_abbrev bundling);
 GetOptions(
     'timing:s'         => \$timing,
     't:s'              => \$timing,
-    'update=s'         => \$update,
-    'u=s'              => \$update,
+    'update:s'         => \$update,
+    'u:s'              => \$update,
     'export=s'         => \$export,
     'e=s'              => \$export,
     'export-options=s' => \$export_opt,
@@ -94,7 +94,7 @@ unless ( $export_opt ) { $export_opt = EXPORT_OPT }
 if    ($help)     { pod2usage(2) }
 elsif ($man)      { pod2usage( -verbose => 2 ) }
 elsif ($timing)   { get_timing() }
-elsif ($update)   { update_db($update) }
+elsif (defined $update)   { update_db($update) }
 elsif (defined $calendar) { show_calendar($calendar) }
 elsif ($export)   { export( $export, $race_id ) }
 elsif ($version)  { print "$0 v@{[VERSION]}\n" }
@@ -201,17 +201,30 @@ sub update_db
     my ( $race, $timesheet, $pdf_ref );
     my $pdf_map = get_pdf_map();
 
-    ( my $len = length $arg ) >= 3
-      or die "Please provide an update argument of at least 3 characters\n";
+    #print $arg, "\n";
 
-    if ( $len > 3 ) {
+    my $len = length $arg;
+
+    if ($len == 0) {
+        my @keys = sort keys %$pdf_map;
+        print "$0 update options:-\n\n";
+        print "Enter the three letter race id or choose from the following:\n";
+        print "\n\t", (join "\n\t", grep /^s/ , @keys);
+        print "\n\t", (join "\n\t", grep /^q/ , @keys);
+        print "\n\t", (join "\n\t", grep /^r/ , @keys), "\n";;
+        return;
+    }
+    elsif ($len == 3) {
+        $race    = $arg;
+        $pdf_ref = $pdf_map;
+    }
+    elsif ( $len > 3 ) {
         ( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/;
         $pdf_ref = { $timesheet => $pdf_map->{$timesheet} }
           or die "Timing document $arg not recognized\n";
     }
-    else {
-        $race    = $arg;
-        $pdf_ref = $pdf_map;
+    else  {
+      die "Please provide an update argument of at least 3 characters\n";
     }
 
     my $race_dir = catdir( get_docs_dir(), $race );
@@ -254,6 +267,8 @@ sub export
     my $map = get_export_map();
     my $sql;
 
+    print Dumper $map if $debug;
+
     my $src = $$map{$value}{src}
         or die "$value export not found";
 
@@ -265,6 +280,7 @@ sub export
     }
 
     if (my $order = $$map{$value}{order}) { $sql .= " ORDER BY $order" }
+    print "$sql\n" if $debug;
 
     my $pipe_cmd = qq <"> . EXPORTER . qq <" $export_opt "$db">;
 
@@ -410,7 +426,6 @@ sub time_sheet
     my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
     my @fields = qw(no lap pit time);
     my @drivers;
-    my $laptime;
 
   HEADER:
     while (<$text>) {
@@ -444,10 +459,10 @@ sub time_sheet
                             substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
                         {
                             my ( $l, $p, $t ) = ( $1, $2, $3 );
-                            $laptime = $t =~ /$tod_re/ ? "$t.000" : "00:0$t";
+                            $t = "00:0$t" unless $t =~ /$tod_re/;
                             my %temp;
                             @temp{@fields} =
-                              ( $nos[$idx]->{'no'}, $l, $p, $laptime );
+                              ( $nos[$idx]->{'no'}, $l, $p, $t );
                             push @recs, \%temp;
                         }
                         $prev_col = $col;
@@ -753,13 +768,13 @@ sub show_exports
     my $href = get_export_map();
     my ( $value, $param, $field, $desc );
 
-    format EXPORTS_TOP =
+format EXPORTS_TOP =
 
  value          param? field         description
 --------------- ------ ------------- -----------------------------------------
 .
 
-    format EXPORTS=
+format EXPORTS=
  @<<<<<<<<<<<<<@|||||||@<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
  $value,       $param, $field,       $desc    
 .
@@ -778,36 +793,56 @@ sub show_exports
 sub get_export_map
 {
     my $export_href = {
-        'race-lap-xtab' => {
+        'race-laps-xtab' => {
             src    => 'race_lap_xtab',
-            param  => 'Y',
-            pfield => 'race_id',
             desc   => 'Desc 1',
         },
         'race-laps' => {
             src    => 'race_lap_hms',
-            param  => 'Y',
-            pfield => 'race_id',
             desc   => 'Desc 2',
         },
         'race-drivers' => {
             src    => 'race_driver',
-            param  => 'Y',
-            pfield => 'race_id',
             desc   => 'Starting grid drivers',
             order => 'race_id, no',
         },
         'qualifying-laps' => {
             src    => 'qualifying_lap_hms',
-            param  => 'Y',
-            pfield => 'race_id',
             desc   => 'Qualifying lap times in hh:mm:ss.sss format',
         },
         'qualifying-drivers' => {
             src    => 'qualifying_driver',
-            param  => 'Y',
-            pfield => 'race_id',
             desc   => 'Qualifying  drivers',
+            order => 'race_id, no',
+        },
+        'session1-drivers' => {
+            src    => 'practice_1_driver',
+            desc   => 'Practice session 1 drivers',
+            order => 'race_id, no',
+        },
+        'session1-laps' => {
+            src    => 'practice_1_lap_hms',
+            desc   => 'Practice session 1 lap times',
+            order => 'race_id, no',
+        },
+        'session2-drivers' => {
+            src    => 'practice_2_driver',
+            desc   => 'Practice session 2 drivers',
+            order => 'race_id, no',
+        },
+        'session2-laps' => {
+            src    => 'practice_2_lap_hms',
+            desc   => 'Practice session 2 lap times',
+            order => 'race_id, no',
+        },
+        'session3-drivers' => {
+            src    => 'practice_3_driver',
+            desc   => 'Practice session 3 drivers',
+            order => 'race_id, no',
+        },
+        'session3-laps' => {
+            src    => 'practice_3_lap_hms',
+            desc   => 'Practice session 3 lap times',
             order => 'race_id, no',
         },
 
