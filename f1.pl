@@ -201,20 +201,17 @@ sub update_db
     my ( $race, $timesheet, $pdf_ref );
     my $pdf_map = get_pdf_map();
 
-    #print $arg, "\n";
-
-    my $len = length $arg;
-
-    if ($len == 0) {
-        my @keys = sort keys %$pdf_map;
-        print "$0 update options:-\n\n";
-        print "Enter the three letter race id or choose from the following:\n";
-        print "\n\t", (join "\n\t", grep /^s/ , @keys);
-        print "\n\t", (join "\n\t", grep /^q/ , @keys);
-        print "\n\t", (join "\n\t", grep /^r/ , @keys), "\n";;
+    if ( my $len = length $arg == 0 ) {
+        my @sorted = map {
+            my $re = qr/$_/;
+            sort grep /$re/, keys %$pdf_map
+        } qw( ^s ^q ^r );
+        print "$0 update options:\n\n";
+        print "Provide a three letter race id or choose from the following:";
+        print "\n\t",  join ("\n\t", @sorted), "\n";
         return;
     }
-    elsif ($len == 3) {
+    elsif ( $len == 3 ) {
         $race    = $arg;
         $pdf_ref = $pdf_map;
     }
@@ -223,8 +220,8 @@ sub update_db
         $pdf_ref = { $timesheet => $pdf_map->{$timesheet} }
           or die "Timing document $arg not recognized\n";
     }
-    else  {
-      die "Please provide an update argument of at least 3 characters\n";
+    else {
+        die "Please provide an update argument of at least 3 characters\n";
     }
 
     my $race_dir = catdir( get_docs_dir(), $race );
