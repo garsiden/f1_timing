@@ -12,19 +12,19 @@ use Data::Dumper;
 use strict;
 use warnings;
 
-# config variables
+# config constants
 use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
-use constant EXPORT_OPT  => '-list -separator , -header';
+use constant EXPORT_OPT  => '-csv -header';
 use constant TIMING_BASE => 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
 use constant TIMING_PAGE => 'timing.aspx';
 
 # old FIA web page
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 
-# database variables
+# database constants
 use constant DB_PATH => "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
@@ -42,7 +42,7 @@ my $export_opt = undef;
 my $race_id    = undef;
 my $calendar   = undef;
 my $docs_dir   = undef;
-my $verbose    = 0;
+my $quiet      = 0;
 my $db_path    = undef;
 my $help       = 0;
 my $man        = 0;
@@ -60,12 +60,15 @@ GetOptions(
     'u:s'              => \$update,
     'export=s'         => \$export,
     'e=s'              => \$export,
-    'export-options=s' => \$export_opt,
+    'export-opts=s'     => \$export_opt,
     'race-id=s'        => \$race_id,
-    'c:i'              => \$calendar,
+    'r=s'              => \$race_id,
     'calendar:i'       => \$calendar,
+    'c:i'              => \$calendar,
     'db-path=s'        => \$db_path,
     'docs-dir=s'       => \$docs_dir,
+    'quiet'            => \$quiet,
+    'q'                => \$quiet,
     'help'             => \$help,
     'man'              => \$man,
     'version'          => \$version,
@@ -86,18 +89,21 @@ my $tod_re     = '\d\d:\d\d:\d\d';
 # PDF mappings
 my $pdf_href = undef;
 
+# helper subs
+use subs qw ( get_docs_dir get_pdf_map get_db_source get_export_map );
+
 # Process command-line arguments
 #
 # use default optiona if none specified
 unless ( $export_opt ) { $export_opt = EXPORT_OPT }
 
-if    ($help)     { pod2usage(2) }
-elsif ($man)      { pod2usage( -verbose => 2 ) }
-elsif ($timing)   { get_timing() }
-elsif (defined $update)   { update_db($update) }
-elsif (defined $calendar) { show_calendar($calendar) }
-elsif ($export)   { export( $export, $race_id ) }
-elsif ($version)  { print "$0 v@{[VERSION]}\n" }
+if    ($help)               { pod2usage(2) }
+elsif ($man)                { pod2usage( -verbose => 2 ) }
+elsif ($timing)             { get_timing() }
+elsif ( defined $update )   { update_db($update) }
+elsif ( defined $calendar ) { show_calendar($calendar) }
+elsif ($export)             { export( $export, $race_id ) }
+elsif ($version)            { print "$0 v@{[VERSION]}\n" }
 elsif ($test) {
     show_exports();
 }
@@ -145,7 +151,7 @@ sub get_timing
 
     print Dumper $get_docs if $debug;
 
-    my $src_dir  = get_docs_dir();
+    my $src_dir  = get_docs_dir;
     my $race_dir = catdir( $src_dir, $race );
 
     unless ( -d $race_dir ) {
@@ -179,7 +185,7 @@ sub get_timing
         }
         my $src = TIMING_BASE . $_;
         if ( ( my $rc = getstore( $src, $dest ) ) == RC_OK ) {
-            print "Downloaded $pdf.\n";
+            print "Downloaded $pdf.\n" unless $quiet;
         }
         else {
             warn "Error downloading $pdf. (Error code: $rc)\n";
@@ -199,9 +205,10 @@ sub update_db
     my $arg = shift;
 
     my ( $race, $timesheet, $pdf_ref );
-    my $pdf_map = get_pdf_map();
+    my $pdf_map = get_pdf_map;
+    my $len = length $arg;
 
-    if ( my $len = length $arg == 0 ) {
+    if ( $len == 0 ) {
         my @sorted = map {
             my $re = qr/$_/;
             sort grep /$re/, keys %$pdf_map
@@ -224,7 +231,7 @@ sub update_db
         die "Please provide an update argument of at least 3 characters\n";
     }
 
-    my $race_dir = catdir( get_docs_dir(), $race );
+    my $race_dir = catdir( get_docs_dir, $race );
     my $year = 1900 + (localtime)[5];
     my $race_id = "$race-$year";
 
@@ -260,8 +267,8 @@ sub export
 {
     my ( $value, $race_id ) = @_;
 
-    my $db  = get_db_source();
-    my $map = get_export_map();
+    my $db  = get_db_source;
+    my $map = get_export_map;
     my $sql;
 
     print Dumper $map if $debug;
@@ -525,10 +532,6 @@ sub qualifying_classification
         if ( @rec{@fields} = /$regex/ ) { push @recs, \%rec }
     }
 
-    print Dumper scalar @recs if $debug;
-    foreach (@recs) {
-        print $$_{no}, "\n";
-    }
     return \@recs;
 }
 
@@ -666,8 +669,7 @@ sub db_insert_array
         my $sth = $dbh->prepare($stmt);
 
         my $tuple_fetch = sub {
-            my $href = pop @{$array_ref};
-            return unless defined $href;
+            return unless my $href = pop @{$array_ref};
             [ $race_id, @$href{@keys} ];
         };
 
@@ -687,7 +689,7 @@ sub db_insert_array
         eval { $dbh->rollback };
     }
     else {
-        print "$tuples record(s) added to table $table\n";
+        print "$tuples record(s) added to table $table\n" unless $quiet;
     }
 
     return $tuples;
@@ -762,7 +764,7 @@ $rd, $date,      $gp,             $start,  $id
 
 sub show_exports
 {
-    my $href = get_export_map();
+    my $href = get_export_map;
     my ( $value, $param, $field, $desc );
 
 format EXPORTS_TOP =
@@ -941,7 +943,6 @@ sub get_pdf_map
             },
 
             # TODO
-            # OTHERS
             # 'race-chart'
             # 'race-classification'
         };
@@ -958,23 +959,27 @@ f1.pl - Download timing PDFs and update database
 
 =head1 SYNOPSIS
 
-sample [options] [file ...]
-
  Options:
     --help                  brief help message
     --man                   full documentation
     -t, --timing[=<value>]  download timing PDFs from FIA web site
     -u, --update[=<pdf>]    parse PDFs and update database     
     -c, --calendar[=<year>] show race calendar for year
+    -q, --quiet             no messages
     -e, --export[=<value>]  export data in CSV format or list options
+    -r, --race-id=<value>   filter export data bay race id
+    --export-opts=<value>   override default export options
     --race-id=<value>       filter export data using race id
     --docs-dir=<path>       use path as source for PDF files
+    --db-path=<path>        use path as source for database
+    --version               print script version
 
     
 =head1 DESCRIPTION
 
-B<f1.pl> will read the given input file(s) and do something
-useful with the contents thereof.
+B<f1.pl> will download the latest FIA timing PDF files, extract the data from
+the documents, parse it and add the records to a database. The data can also
+be exported in CSV format for further analysis.
 
 =head1 OPTIONS
 
@@ -986,7 +991,7 @@ Print a brief help message and exits.
 
 =item B<-man>
 
-Prints the manual page and exits.
+Print the manual page and exits.
 
 =item B<-t, --timing[=E<lt>valueE<gt>]>
 
@@ -1007,11 +1012,9 @@ Recognized optional values are:
 
 =item sat             - practice session 3 and qualifying
 
-=back
+=item
 
-Examples:
-
-=over 4
+=item Examples:
 
 =item --timing=thu - download Monaco practice session 1 & 2
 
@@ -1041,22 +1044,17 @@ full file path will be F</home/username/F1/2011/mco-race-trap.pdf>.
 The search path can be changed on the command line with the docs-dir
 option, below.
 
-=item B<-d, --docs-dir=E<lt>pathE<gt>>
-
-Search <path> for timing PDFs. Over-rides the path contained in the script
-I<DOCS_DIR> constant and the environment variable I<F1_TIMING_DOCS_DIR>.
-
 =item B<-c, --calendar[=E<lt>yearE<gt>]>
 
 Display race calendar for current year, or if the optional year is provided,
 for that year.
 
-=item B<--db-path=E<lt>pathE<gt>>
+=item B<-q, --quiet>
 
-File path of SQLite database. Over-rides the path contained in the script
-I<DB_PATH> constant and the I<F1_TIMING_DB_PATH> environment variable.
+No messages to confirm the PDF file downloaded of the number of records added
+to each database table.
 
-=item B<-e, --export[=E<lt>valueE<gt>>
+=item B<-e, --export[=E<lt>valueE<gt>]>
 
 Export data in CSV format. Redirect to a file for loading into a spreadsheet or
 another database. The <value> is the source view or table; omit the value to
@@ -1068,9 +1066,45 @@ display a list of possible sources.
 
 =item --export=calendar                 - print calendar to stdout
 
-=item --export=race-lap-xtab > laps.csv - export lap times to CSV file
+=item --export=race-lap-xtab > laps.csv - export lap times to file
 
 =back
+
+=item
+
+=item B<-r, --race-id=E<lt>valueE<gt>>
+
+Filter the data exports by race using a race id.
+
+=item B<--export-opts=E<lt>valueE<gt>>
+
+Override the default export format (CSV with headers).
+
+=over 4
+
+=item Examples:
+
+=item --export-opts='-html -header'   - HTML table with headers
+
+=item --export-opts=-list             - list with '|' delimiter
+
+=back
+
+See the SQLite help for more formats and options.
+
+=item B<-d, --docs-dir=E<lt>pathE<gt>>
+
+Search <path> for timing PDFs. Over-rides the path contained in the script
+I<DOCS_DIR> constant and the environment variable I<F1_TIMING_DOCS_DIR>.
+
+=item B<--db-path=E<lt>pathE<gt>>
+
+File path of SQLite database. Overrides the path contained in the script
+I<DB_PATH> constant and the I<F1_TIMING_DB_PATH> environment variable.
+
+=item B<--version>
+
+Show script version.
 
 =back
 
