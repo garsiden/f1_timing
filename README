@@ -1,3 +1,5 @@
+
+
 deletion of records before insert (within transaction)
 
     Rounding errors using SQLite julian time - suggest PostgreSQL instead or
@@ -5,3 +7,6 @@ deletion of records before insert (within transaction)
 
    Add race details for each season into race table. DB will hold more than
    one seasons data - unless comparing separate db for each?
+   
+
+   Slow lapp diff query - ss analysis or stored procedures

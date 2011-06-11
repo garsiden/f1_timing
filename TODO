@@ -1,6 +1,7 @@
 TODO
 
  1. Define command line interface
+        DONE
 
  2. Implement POD help
 
@@ -9,20 +10,33 @@ TODO
  4. README file
 
  5. Race lap analysis crosstab
+        DONE
 
  6. Decide on whether to use YAML
         DONE - no YAML
 
  7. Tidy up config variables
+        DONE
 
  8. Parse starting grid
+        DONE
 
  9. Look at un-parsed PDFs
+        DONE
 
 10. Query ideas:
-        +/- laptime compared to average of winner (as per JA)
-        driver/team standings
-        race schedule
-        race summary (podiums, fastest lap, race time, fastest pit stop)
+    +/- laptime compared to average of winner (as per JA)
+    driver/team standings
+    race schedule
+    race summary (podiums, fastest lap, race time, fastest pit stop)
 
 11. Correct regex for DI RESTA for race-grid.pdf
+        DONE
+
+12. Spell check POD
+
+13. HTML version of POD/INSTALL/README
+
+14. Check sum of lap times with race time etc.
+
+14. Print of export options cleanup.
