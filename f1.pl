@@ -302,9 +302,33 @@ sub race_history_chart
     my $text = shift;
 
     my $header_re = qr/(?:LAP )(\d{1,2})(?:    |\n)/;
+    my $gap_re = '\d{1,3}\.\d\d\d';
 
-    my $laptime_re =
-qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(P)?(?:IT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
+    my $regex = qr/
+    (?:                     # grouping for sub-patterns
+        (?!                 # negative look ahead for no. field and a gap
+            $no_re\         # car no
+        )                   
+        (\d*)               # may not be a space between no and gap fields
+        (\d{3}\.\d{3})\  +  # when gap over 100s, so backtrack to get time   
+        ($time_re)
+    )
+    |                       # sub-pattern for all other circumstances
+        ($no_re)\ +
+        (P)?                # field can be PIT, LAPS behind or gap in seconds
+        (?:IT)?             # capture P, discard the rest
+            (?:             # grouping for sub-pattern
+                \d+\ [LAPS]{3,4}
+            |
+                $gap_re
+            |
+                \ +         # empty field on lap 1
+            )?
+         \ +
+        ($time_re)
+    /x;
+
+#my $re =  qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(P)?(?:IT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
     my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
     my @fields = qw(lap no  pit time);
     my @drivers;
@@ -314,7 +338,7 @@ qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(P)?(?:IT
     while (<$text>) {
         if ( my @laps = /$header_re/g ) {
 
-            print Dumper \@laps if $debug;
+            #print Dumper \@laps if $debug;
             # skip empty lines
             do { $line = <$text> } until $line !~ /^\n$/;
 
@@ -334,9 +358,7 @@ qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(P)?(?:IT
                 for my $col (@col_pos) {
                     $width = $col - $prev_col;
                     if ( $prev_col < $len ) {
-                        while (
-                            substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
-                        {
+                        while ( substr( $_, $prev_col, $width ) =~ /$regex/g ) {
                             my ( $n, $p, $t );
                             if ( $1 ) {
                                 ( $n, $t ) = ( $1, $3 );
@@ -363,7 +385,15 @@ sub provisional_starting_grid
 {
     my $text = shift;
 
-    my $left  = qr/($pos_re) +($no_re) +($driver_re)\**(?: {2,}|\n)($time_re)?/;
+    my $left  = qr/
+        ($pos_re)\ +
+        ($no_re)\ +
+        ($driver_re)\**     # one or more asterisks indicate allowed to race
+                            # although outside 107% of Q1 lap time.
+        (?:\ {2,}|\n)       # two space gap to indicate end of name or new line
+        ($time_re)?         # possibly no time set
+    /x;
+
     my $right = qr/($no_re) +($driver_re)\** +($time_re)? +($pos_re)/;
     my $entrant_line = qr/^ +($entrant_re)/;
     my ( $pos, $no, $driver, $time, $entrant, @recs );
@@ -403,8 +433,19 @@ sub race_pit_stop_summary
     my $stop_re      = '\d';
     my $duration_re  = '(?:\d+:)?\d\d\.\d\d\d';
     my $totaltime_re = $duration_re;
-    my $regex = qr/($no_re) +($driver_re) {2,}($entrant_re?) +($lap_re) +/;
-    $regex .= qr/($tod_re) +($stop_re) +($duration_re) +($totaltime_re)/;
+    #my $regex = qr/($no_re) +($driver_re) {2,}($entrant_re?) +($lap_re) +/;
+    #$regex .= qr/($tod_re) +($stop_re) +($duration_re) +($totaltime_re)/;
+
+    my $regex = qr/
+       ($no_re)\ +
+       ($driver_re)\ {2,}
+       ($entrant_re?)\ +
+       ($lap_re)\ +; 
+       ($tod_re)\ +
+       ($stop_re)\ +
+       ($duration_re)\ +
+       ($totaltime_re)
+    /x;
 
     my @recs;
 
@@ -489,9 +530,19 @@ sub classification
     my $nat_re = '[A-Z]{3}';
     my $gap_re = '\d{1,2}\.\d\d\d';
 
-    my $regex =
-      qr/($pos_re) +($no_re) +($driver_re) +($nat_re) +($entrant_re?) +/;
-    $regex .= qr/($time_re)? *($lap_re) *($gap_re)? *($kph_re)? *($tod_re)?\s+/;
+    my $regex = qr/
+        ($pos_re)\ +
+        ($no_re)\ +
+        ($driver_re)\ +
+        ($nat_re)\ +
+        ($entrant_re?)\ +
+        ($time_re)?\ *
+        ($lap_re)\ *
+        ($gap_re)?\ *
+        ($kph_re)?\ *
+        ($tod_re)?\s+
+    /x;
+
     my @recs;
 
     while (<$text>) {
@@ -516,8 +567,15 @@ sub qualifying_classification
 
     my $percent_re = '\d\d\d\.\d\d\d';
     my $laptime_re = "$time_re|DN[FS]";
-    my $regex      = qr/($pos_re)? +($no_re)(?: +[A-Z].*?)/;
-    $regex .= qr/($time_re) *($lap_re)? *($percent_re)? *($tod_re)?\s*/;
+    my $regex      = qr/
+        ($pos_re)?\ +
+        ($no_re)
+        (?:\ +[A-Z].*?)
+        ($time_re)\ *
+        ($lap_re)?\ *
+        ($percent_re)?\ *
+        ($tod_re)?\s*
+    /x;
     $regex .= qr/($time_re)? *($lap_re)? *($tod_re)?\s*/ x 2;
 
     print Dumper $regex if $debug;
