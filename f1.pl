@@ -34,19 +34,19 @@ use constant VERSION => '20110612';
 # database handle
 my $dbh = undef;
 
-# comand line option variables
-my $timing     = undef;
-my $update     = undef;
-my $export     = undef;
-my $export_opt = undef;
-my $race_id    = undef;
-my $calendar   = undef;
-my $docs_dir   = undef;
-my $quiet      = 0;
-my $db_path    = undef;
-my $help       = 0;
-my $man        = 0;
-my $version    = 0;
+# command line option variables
+my $timing      = undef;
+my $update      = undef;
+my $export      = undef;
+my $export_opts = undef;
+my $race_id     = undef;
+my $calendar    = undef;
+my $docs_dir    = undef;
+my $quiet       = 0;
+my $db_path     = undef;
+my $help        = 0;
+my $man         = 0;
+my $version     = 0;
 
 # test/debug
 my $debug = 0;
@@ -58,9 +58,9 @@ GetOptions(
     't:s'              => \$timing,
     'update:s'         => \$update,
     'u:s'              => \$update,
-    'export=s'         => \$export,
-    'e=s'              => \$export,
-    'export-opts=s'     => \$export_opt,
+    'export:s'         => \$export,
+    'e:s'              => \$export,
+    'export-opts=s'    => \$export_opts,
     'race-id=s'        => \$race_id,
     'r=s'              => \$race_id,
     'calendar:i'       => \$calendar,
@@ -94,15 +94,15 @@ use subs qw ( get_docs_dir get_pdf_map get_db_source get_export_map );
 
 # Process command-line arguments
 #
-# use default optiona if none specified
-unless ( $export_opt ) { $export_opt = EXPORT_OPT }
+# use default options if none specified
+unless ( $export_opts ) { $export_opts = EXPORT_OPT }
 
 if    ($help)               { pod2usage(2) }
 elsif ($man)                { pod2usage( -verbose => 2 ) }
 elsif ($timing)             { get_timing() }
 elsif ( defined $update )   { update_db($update) }
 elsif ( defined $calendar ) { show_calendar($calendar) }
-elsif ($export)             { export( $export, $race_id ) }
+elsif ( defined $export)    { export( $export, $race_id ) }
 elsif ($version)            { print "$0 v@{[VERSION]}\n" }
 elsif ($test) {
     show_exports();
@@ -266,27 +266,27 @@ sub update_db
 sub export
 {
     my ( $value, $race_id ) = @_;
-
-    my $db  = get_db_source;
     my $map = get_export_map;
-    my $sql;
 
-    print Dumper $map if $debug;
+    unless (length $value) {
+        show_exports($map);
+        return;
+    }
 
     my $src = $$map{$value}{src}
         or die "$value export not found";
 
-    if ( $race_id ) {
-        $sql = "SELECT * FROM $src WHERE race_id='$race_id'";
-    }
-    else {
-        $sql = "SELECT * FROM $src";
-    }
+    my $db  = get_db_source;
+    my $sql = "SELECT * FROM $src";
 
+    print Dumper $map if $debug;
+
+    $sql .= " WHERE race_id='$race_id'" if $race_id;
     if (my $order = $$map{$value}{order}) { $sql .= " ORDER BY $order" }
+
     print "$sql\n" if $debug;
 
-    my $pipe_cmd = qq <"> . EXPORTER . qq <" $export_opt "$db">;
+    my $pipe_cmd = qq <"> . EXPORTER . qq <" $export_opts "$db">;
 
     open my $exporter, "|-", $pipe_cmd
       or die "Unable to open " . EXPORTER . ": $!";
@@ -307,7 +307,7 @@ sub race_history_chart
     my $regex = qr/
     (?:                     # grouping for sub-patterns
         (?!                 # negative look ahead for no. field and a gap
-            $no_re\         # car no
+            $no_re\ +       # car no
         )                   
         (\d*)               # may not be a space between no and gap fields
         (\d{3}\.\d{3})\  +  # when gap over 100s, so backtrack to get time   
@@ -328,7 +328,6 @@ sub race_history_chart
         ($time_re)
     /x;
 
-#my $re =  qr/(?:(?!\d{1,2} )(\d*)(\d\d\d\.\d\d\d) +(\d:\d\d\.\d\d\d))|(\d{1,2}) +(P)?(?:IT)?(?:\d [LAPS]{3,4}|\d{1,3}\.\d{3}| +)? +(\d:\d\d\.\d\d\d)/;
     my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
     my @fields = qw(lap no  pit time);
     my @drivers;
@@ -822,27 +821,33 @@ $rd, $date,      $gp,             $start,  $id
 
 sub show_exports
 {
-    my $href = get_export_map;
-    my ( $value, $param, $field, $desc );
+    my $href = shift;
+    my ( $value, $desc );
 
 format EXPORTS_TOP =
-
- value          param? field         description
---------------- ------ ------------- -----------------------------------------
+Exports:
+ value                 description
+--------------------- ---------------------------------------------------------
 .
 
 format EXPORTS=
- @<<<<<<<<<<<<<@|||||||@<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
- $value,       $param, $field,       $desc    
+ @<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+ $value,               $desc 
 .
 
     use FileHandle;
     STDOUT->format_name('EXPORTS');
     STDOUT->format_top_name('EXPORTS_TOP');
 
-    for my $k ( keys %$href ) {
+    for my $k (
+        map {
+            my $re = qr/$_/;
+            sort grep /$re/, keys %$href
+        } qw( ^s ^q ^r )
+      )
+    {
         $value = $k;
-        ( $param, $field, $desc ) = @{ $href->{$k} }{qw(param pfield desc)};
+        $desc  = $$href{$k}{desc};
         write;
     }
 }
@@ -851,55 +856,55 @@ sub get_export_map
 {
     my $export_href = {
         'race-laps-xtab' => {
-            src    => 'race_lap_xtab',
-            desc   => 'Desc 1',
+            src => 'race_lap_xtab',
+            desc => 'Cross-tab of lap times by lap/car in \'hh:mm:ss.fff\'',
         },
         'race-laps' => {
-            src    => 'race_lap_hms',
-            desc   => 'Desc 2',
+            src  => 'race_lap_hms',
+            desc => 'Race lap times in \'hh:mm:ss.fff\' format',
         },
         'race-drivers' => {
-            src    => 'race_driver',
-            desc   => 'Starting grid drivers',
+            src   => 'race_driver',
+            desc  => 'Starting grid drivers',
             order => 'race_id, no',
         },
         'qualifying-laps' => {
-            src    => 'qualifying_lap_hms',
-            desc   => 'Qualifying lap times in hh:mm:ss.sss format',
+            src  => 'qualifying_lap_hms',
+            desc => 'Qualifying lap times in \'hh:mm:ss.fff\' format',
         },
         'qualifying-drivers' => {
-            src    => 'qualifying_driver',
-            desc   => 'Qualifying  drivers',
+            src   => 'qualifying_driver',
+            desc  => 'Qualifying  drivers',
             order => 'race_id, no',
         },
         'session1-drivers' => {
-            src    => 'practice_1_driver',
-            desc   => 'Practice session 1 drivers',
+            src   => 'practice_1_driver',
+            desc  => 'Practice session 1 drivers',
             order => 'race_id, no',
         },
         'session1-laps' => {
-            src    => 'practice_1_lap_hms',
-            desc   => 'Practice session 1 lap times',
+            src   => 'practice_1_lap_hms',
+            desc  => 'Practice session 1 lap times',
             order => 'race_id, no',
         },
         'session2-drivers' => {
-            src    => 'practice_2_driver',
-            desc   => 'Practice session 2 drivers',
+            src   => 'practice_2_driver',
+            desc  => 'Practice session 2 drivers',
             order => 'race_id, no',
         },
         'session2-laps' => {
-            src    => 'practice_2_lap_hms',
-            desc   => 'Practice session 2 lap times',
+            src   => 'practice_2_lap_hms',
+            desc  => 'Practice session 2 lap times',
             order => 'race_id, no',
         },
         'session3-drivers' => {
-            src    => 'practice_3_driver',
-            desc   => 'Practice session 3 drivers',
+            src   => 'practice_3_driver',
+            desc  => 'Practice session 3 drivers',
             order => 'race_id, no',
         },
         'session3-laps' => {
-            src    => 'practice_3_lap_hms',
-            desc   => 'Practice session 3 lap times',
+            src   => 'practice_3_lap_hms',
+            desc  => 'Practice session 3 lap times',
             order => 'race_id, no',
         },
 
@@ -1095,9 +1100,9 @@ suffix e.g., chn-race-analysis. The race codes can be obtained using the
 I<calendar> option, below.
 
 The file path for the required PDF is defined in the script constant
-I<DOCS_DIR>, to which the current year is added e.g, if DOCS_DIR is set to
-F</home/username/F1> and the required timing document is mco-race-trap the
-full file path will be F</home/username/F1/2011/mco-race-trap.pdf>.
+I<DOCS_DIR>, to which the three letter race code is added e.g, if DOCS_DIR is
+set to F</home/username/F1> and the required timing document is mco-race-trap
+the full file path will be F</home/username/F1/mco/mco-race-trap.pdf>.
 
 The search path can be changed on the command line with the docs-dir
 option, below.
