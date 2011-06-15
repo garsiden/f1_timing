@@ -464,29 +464,34 @@ sub race_classification
     my $text = shift;
 
     my $regex = qr/
-            ($pos_re|DQ)?\ +
-            ($no_re)\ +
-            ($driver_re)                
+            ($pos_re|DQ)?\ +            # POS
+            ($no_re)\ +                 # NO
+            ($driver_re)                # DRIVER
             \ *\**\ {2,}                # possible asterisk indicating penalty
-            ($nat_re)\ +
-            ($entrant_re?)\ +
-            ($lap_re)\ +                # laps completed
+            ($nat_re)\ +                # NAT
+            ($entrant_re?)\ +           # ENTRANT
+            ($lap_re)\ +                # LAPS completed
             (
-                \d:\d\d:\d\d\.\d\d\d    # total time with hours
+                \d:\d\d:\d\d\.\d\d\d    # total TIME with hours
                 |
-                \d{1,2}:\d\d\.\d\d\d    # total time, minutes
+                \d{1,2}:\d\d\.\d\d\d    # total TIME, minutes
             )?\ *
-            (
-                DN[SF]
-                |
-                \d{1,3}\.\d\d\d         # seconds
-                |
-                \d{1,2}\ +[LAPS]{3,4}   # lap(s) behind
-            )\s*
-            (\d{2,3}\.\d\d\d)?\ *       # kph
-            ($time_re)?\ *              # best lap time
-            ($lap_re)?\s*               # laps completed
-        /x;
+            (?(7)                       # if TIME field has a value
+                (                       # GAP:
+                    DNF                     # non-finisher
+                    |
+                    \d{1,3}\.\d\d\d         # in seconds
+                    |
+                    \d{1,2}\ +[LAPS]{3,4}   # lap(s) behind
+                )?\ +
+                (\d{2,3}\.\d\d\d)\ +    # KPH
+                (\d:\d\d\.\d\d\d)\ +    # BEST
+                (\d{1,2})$              # LAP (eol)
+            )
+            |                           # else
+                (DNS)$                  # dns in GAP field (eol)
+            
+            /x;
 
     print Dumper $regex if $debug;
 
