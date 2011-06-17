@@ -13,10 +13,8 @@ CREATE TABLE qualifying_speed_trap
     ON UPDATE CASCADE
     ON DELETE CASCADE,
     UNIQUE (race_id, no),
-    CHECK (pos BETWEEN 1 and 26),
-    CHECK (no BETWEEN 1 AND 26)
+    CHECK (pos BETWEEN 0 and 25),
+    CHECK (no BETWEEN 0 AND 25)
 );
 
 CREATE INDEX IF NOT EXISTS qualifying_speed_trap_race_id_idx ON qualifying_speed_trap (race_id);
-CREATE INDEX IF NOT EXISTS qualifying_speed_trap_pos_idx ON qualifying_speed_trap (pos);
-CREATE INDEX IF NOT EXISTS qualifying_speed_trap_no_idx ON qualifying_speed_trap (no);

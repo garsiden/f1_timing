@@ -14,8 +14,8 @@ CREATE TABLE race_best_sector_time
     ON UPDATE CASCADE
     ON DELETE CASCADE,
     CHECK (sector IN(1, 2, 3)),
-    CHECK (pos BETWEEN 1 AND 26),
-    CHECK (no BETWEEN 1 AND 26)
+    CHECK (pos BETWEEN 0 AND 25),
+    CHECK (no BETWEEN 0 AND 25)
 );
 
 CREATE INDEX IF NOT EXISTS race_best_sector_time_race_id_idx ON race_best_sector_time (race_id);

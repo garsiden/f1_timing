@@ -15,5 +15,8 @@ CREATE TABLE race_pit_stop_summary
     UNIQUE (race_id, no, lap),
     FOREIGN KEY (race_id) REFERENCES race(id)
     ON UPDATE CASCADE
-    ON DELETE CASCADE
+    ON DELETE CASCADE,
+    CHECK (no BETWEEN 0 AND 25)
 );
+
+CREATE INDEX IF NOT EXISTS race_pit_stop_summary_race_id_idx ON race_pit_stop_summary(race_id);

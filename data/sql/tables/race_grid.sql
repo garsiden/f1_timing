@@ -11,5 +11,10 @@ CREATE TABLE race_grid
     PRIMARY KEY (race_id, pos),
     UNIQUE (race_id, no),
     FOREIGN KEY (race_id) REFERENCES race(id)
-    ON DELETE CASCADE ON UPDATE CASCADE
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+    CHECK (pos BETWEEN 0 AND 25),
+    CHECK (no BETWEEN 0 AND 25)
 );
+
+CREATE INDEX IF NOT EXISTS race_grid_race_id_idx ON race_grid(race_id);

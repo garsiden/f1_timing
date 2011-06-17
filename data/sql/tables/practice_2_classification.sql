@@ -18,8 +18,8 @@ CREATE TABLE practice_2_classification
     FOREIGN KEY (race_id) REFERENCES race(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
-    CHECK (pos BETWEEN 1 AND 25),
-    CHECK (no BETWEEN 1 AND 25)
+    CHECK (pos BETWEEN 0 AND 25),
+    CHECK (no BETWEEN 0 AND 25)
 );
 
 CREATE INDEX IF NOT EXISTS practice_2_classification_race_id_idx ON practice_2_classification(race_id);

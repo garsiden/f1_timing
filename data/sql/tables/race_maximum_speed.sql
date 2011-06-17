@@ -14,8 +14,8 @@ CREATE TABLE race_maximum_speed
     ON DELETE CASCADE
     ON UPDATE CASCADE,
     CHECK (speedtrap IN(1, 2, 3)),
-    CHECK (pos BETWEEN 1 AND 26),
-    CHECK (no BETWEEN 1 AND 26)
+    CHECK (pos BETWEEN 0 AND 25),
+    CHECK (no BETWEEN 0 AND 25)
 );
 
 CREATE INDEX IF NOT EXISTS race_maximum_speed_race_id_idx ON race_maximum_speed(race_id);
