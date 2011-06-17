@@ -9,11 +9,11 @@ CREATE TABLE race_classification
     nat CHAR(3) NOT NULL,
     entrant VARCHAR(50) NOT NULL,
     laps INTEGER NOT NULL,
-    total_time TIME,
+    time TIME,
     gap VARCHAR(7),
     kph DECIMAL(6,3),
     best TIME,
-    on_lap INTEGER,
+    lap INTEGER,
     PRIMARY KEY (race_id, no),
     UNIQUE (race_id, pos),
     FOREIGN KEY (race_id) REFERENCES race(id)
