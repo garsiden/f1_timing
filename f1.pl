@@ -13,7 +13,7 @@ use strict;
 use warnings;
 
 # config constants
-use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/2011/";
+use constant DOCS_DIR    => "$ENV{HOME}/My Documents/F1/2011/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
@@ -25,7 +25,7 @@ use constant TIMING_PAGE => 'timing.aspx';
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 
 # database constants
-use constant DB_PATH => "$ENV{HOME}/Documents/F1/2011/db/f1_timing.db";
+use constant DB_PATH => "$ENV{HOME}/My Documents/F1/2011/db/f1_timing.db";
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
@@ -208,7 +208,21 @@ sub update_db
     my ( $race, $timesheet, $pdf_ref );
     my $pdf_map = get_pdf_map;
     my $len     = length $arg;
+	
+    my %args = (
+	    p1  => qr/session1/,
+	    p2  => qr/session2/,
+	    p3  => qr/session3/,
+	    p   => qr/session[123]/,
+	    q   => qr/qualifying/,
+	    r   => qr/race/,
+	    fri => qr/session[12]/,
+	    sat => qr/session3|qualifying/,
+	);
+	$args{thu} = $args{fri};
+	$args{sun} = $args{r};
 
+	my($r, $s);
     if ( $len == 0 ) {
         my @sorted = map {
             my $re = qr/$_/;
@@ -218,6 +232,16 @@ sub update_db
         print "Provide a three letter race id or choose from the following:";
         print "\n\t", join( "\n\t", @sorted ), "\n";
         return;
+    }
+    elsif (( ($race, $s) = map lc, split /-/, $arg) &&
+	    defined $race &&
+	    defined $s &&
+	    defined (my $re = $args{$s}) ) {
+	print "ok: $race\t$s\n";
+	my %hash;
+	for (keys %$pdf_map) { $hash{$_} = $pdf_map->{$_} if /$re/; }
+	print Dumper %hash;
+	return;
     }
     elsif ( $len == 3 ) {
         $race    = $arg;
@@ -258,7 +282,7 @@ sub update_db
 
         my $table = $href->{table};
 
-        #db_insert_array( $race_id, $table, $recs );
+        db_insert_array( $race_id, $table, $recs );
         close $text
           or die 'Unable to close ' . CONVERTER . ": $! $?";
     }
