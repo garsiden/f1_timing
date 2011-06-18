@@ -13,7 +13,7 @@ use strict;
 use warnings;
 
 # config constants
-use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/";
+use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/2011/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
@@ -25,7 +25,7 @@ use constant TIMING_PAGE => 'timing.aspx';
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 
 # database constants
-use constant DB_PATH => "$ENV{HOME}/Documents/F1/db/f1_timing.db3";
+use constant DB_PATH => "$ENV{HOME}/Documents/F1/2011/db/f1_timing.db";
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
@@ -78,9 +78,9 @@ GetOptions(
 
 # shared regexs
 my $driver_re  = q<[A-Z]\. [A-Z '-]+?>;
+my $entrant_re = q<[A-z0-9& -']+>;
 my $time_re    = '\d:\d\d\.\d\d\d';
 my $kph_re     = '\d{2,3}\.\d{1,3}';
-my $entrant_re = '[A-z0-9& -]+';
 my $pos_re     = '\d{1,2}';
 my $no_re      = $pos_re;
 my $lap_re     = '\d{1,2}';
@@ -113,10 +113,7 @@ elsif ($test) {
 sub get_timing
 {
     my $check_exists = 1;
-    my $race;
-    my $get_docs;
-    my %args;
-    my $msg;
+    my ($race, $get_docs, %args, $msg);
 
     # get list of latest pdfs
     my $docs = get_doc_links( TIMING_BASE, TIMING_PAGE );
@@ -168,15 +165,15 @@ sub get_timing
         print Dumper $dest if $debug;
         if ( $check_exists and -f $dest ) {
             print "File $dest already exists.\n";
-            $msg = "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel)";
-            $msg .= "\n" if $^O =~ /MSWin/;
-            print $msg;
+            print "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel)";
+            print "\n" if $^O =~ /MSWin/;
             ReadMode 'cbreak';
             my $answer = lc ReadKey(0);
             ReadMode 'normal';
 
             while ( index( 'ynac', $answer ) < 0 ) {
-                print "\nPlease enter [y]es/[n]o/[a]ll/[c]ancel)?\n";
+                print "\nPlease enter [y]es/[n]o/[a]ll/[c]ancel)?";
+                print "\n" if $^O =~ /MSWin/;
                 ReadMode 'cbreak';
                 $answer = lc ReadKey(0);
                 ReadMode 'normal';
@@ -305,7 +302,7 @@ sub race_history_chart
 {
     my $text = shift;
 
-    my $header_re = qr/(?:LAP )(\d{1,2})(?:    |\n)/;
+    my $header_re = qr/LAP (\d{1,2})(?: {3,}|\n)/;
     my $gap_re    = '\d{1,3}\.\d\d\d';
 
     my $regex = qr/
@@ -572,18 +569,18 @@ sub time_sheet
 {
     my $text = shift;
 
-    my $header_re  = qr/($no_re)\s+($driver_re)(?: {2,}|\n)/;
+    my $header_re  = qr/($no_re) +($driver_re)(?: {2,}|\n)/;
     my $laptime_re = qr/
-        ($lap_re)\ *                # lap number
+        ($lap_re)\ *                # LAP
         (P)?\ +                     # PIT
-        (?:                         
-            (\d:\d\d\.\d\d\d)       # normal laptime
+        (?:                         # TIME - capture separately for formatting 
+            (\d:\d\d\.\d\d\d)       # normal lap
             |
             (\d\d:\d\d:\d\d)        # time of day
             |
-            (\d\d:\d\d\.\d\d\d)     # 2 digits for minutes
+            (\d\d:\d\d\.\d\d\d)     # long - 2 digits for minutes
             |
-            (\d:\d\d:\d\d\.\d\d\d)  # with hours
+            (\d:\d\d:\d\d\.\d\d\d)  # with hours for red flag
         )\s?
     /x;
 
@@ -718,8 +715,14 @@ sub speed_trap
 {
     my $text = shift;
 
-    my $regex =
-      qr/^ +($pos_re) +($no_re) +($driver_re) +($kph_re) +($tod_re)\s+/;
+    my $regex = qr/
+        ^\ +
+        ($pos_re)\ +
+        ($no_re)\ +
+        ($driver_re)\ +
+        ($kph_re)\ +
+        ($tod_re)\s+
+    /x;
 
     my @recs;
     my @fields = qw( pos no driver kph time_of_day);
@@ -906,10 +909,10 @@ sub show_calendar
     if ( defined $year ) { $year = 1900 + (localtime)[5] unless $year }
 
     my $sql = <<'SQL';
-SELECT round, date, grand_prix, start, id
+SELECT rd, date, gp, start, id
 FROM calendar
 WHERE season=?
-ORDER BY round
+ORDER BY rd
 SQL
 
     my $dbh = db_connect;
@@ -931,10 +934,10 @@ $rd, $date,      $gp,             $start,  $id
     $^ = 'CALENDAR_TOP';
     $~ = 'CALENDAR';
 
-    foreach my $rec (@$recs) {
-        $rd    = $rec->{round};
+    for my $rec (@$recs) {
+        $rd    = $rec->{rd};
         $date  = $rec->{date};
-        $gp    = $rec->{grand_prix};
+        $gp    = $rec->{gp};
         $start = $rec->{start};
         $id    = $rec->{id};
         write;
@@ -1134,7 +1137,6 @@ sub get_pdf_map
             
             # TODO
             # 'race-chart'
-            # 'race-classification'
         };
     }
 
