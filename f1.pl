@@ -91,7 +91,8 @@ my $nat_re     = '[A-Z]{3}';
 my $pdf_href = undef;
 
 # helper subs
-use subs qw ( get_docs_dir get_pdf_map get_db_source get_export_map );
+use subs qw ( get_docs_dir get_pdf_map get_db_source get_export_map
+  get_doc_sessions);
 
 # Process command-line arguments
 #
@@ -113,7 +114,7 @@ elsif ($test) {
 sub get_timing
 {
     my $check_exists = 1;
-    my ($race, $get_docs, %args, $msg);
+    my ($race, $get_docs, $msg);
 
     # get list of latest pdfs
     my $docs = get_doc_links( TIMING_BASE, TIMING_PAGE );
@@ -128,21 +129,9 @@ sub get_timing
         $get_docs = $docs;
     }
     else {
-        %args = (
-            p1  => qr/session1/,
-            p2  => qr/session2/,
-            p3  => qr/session3/,
-            p   => qr/session[123]/,
-            q   => qr/qualifying/,
-            r   => qr/race/,
-            fri => qr/session[12]/,
-            sat => qr/session3|qualifying/,
-        );
-        $args{thu} = $args{fri};
-        $args{sun} = $args{r};
-
+        my $sess_href = get_doc_sessions
         my $arg = lc $timing;
-        defined( my $re = $args{$arg} )
+        defined( my $re = $sess_href->{$arg} )
           or die "$timing timing option not recognized\n";
 
         $get_docs = [ grep /$re/, @$docs ];
@@ -201,28 +190,34 @@ sub get_docs_dir
     else                                         { return DOCS_DIR }
 }
 
+sub get_doc_sessions
+{
+    my %h = (
+        p1  => qr/session1/,
+        p2  => qr/session2/,
+        p3  => qr/session3/,
+        p   => qr/session[123]/,
+        q   => qr/qualifying/,
+        r   => qr/race/,
+        fri => qr/session[12]/,
+        sat => qr/session3|qualifying/,
+    );
+    $h{thu} = $h{fri};
+    $h{sun} = $h{r};
+
+    \%h;
+}
+
 sub update_db
 {
     my $arg = shift;
 
-    my ( $race, $timesheet, $pdf_ref );
+    my ( $race, $session, $timesheet, $pdf_href );
     my $pdf_map = get_pdf_map;
     my $len     = length $arg;
-	
-    my %args = (
-	    p1  => qr/session1/,
-	    p2  => qr/session2/,
-	    p3  => qr/session3/,
-	    p   => qr/session[123]/,
-	    q   => qr/qualifying/,
-	    r   => qr/race/,
-	    fri => qr/session[12]/,
-	    sat => qr/session3|qualifying/,
-	);
-	$args{thu} = $args{fri};
-	$args{sun} = $args{r};
+    my $sess_href = get_doc_sessions;
 
-	my($r, $s);
+    my ( $r, $s );
     if ( $len == 0 ) {
         my @sorted = map {
             my $re = qr/$_/;
@@ -233,23 +228,20 @@ sub update_db
         print "\n\t", join( "\n\t", @sorted ), "\n";
         return;
     }
-    elsif (( ($race, $s) = map lc, split /-/, $arg) &&
-	    defined $race &&
-	    defined $s &&
-	    defined (my $re = $args{$s}) ) {
-	print "ok: $race\t$s\n";
-	my %hash;
-	for (keys %$pdf_map) { $hash{$_} = $pdf_map->{$_} if /$re/; }
-	print Dumper %hash;
-	return;
+    elsif (( ( $race, $session ) = map lc, split /-/, $arg )
+        && defined $race
+        && defined $session
+        && defined( my $re = $sess_href->{$session} ) )
+    {
+        $pdf_href = { map { $_, $$pdf_map{$_} } grep /$re/, keys %$pdf_map };
     }
     elsif ( $len == 3 ) {
         $race    = $arg;
-        $pdf_ref = $pdf_map;
+        $pdf_href = $pdf_map;
     }
     elsif ( $len > 3 ) {
-        ( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/;
-        $pdf_ref = { $timesheet => $pdf_map->{$timesheet} }
+        ((( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/) &&
+        ($pdf_href = { $timesheet => $pdf_map->{$timesheet} }))
           or die "Timing document $arg not recognized\n";
     }
     else {
@@ -260,7 +252,7 @@ sub update_db
     my $year = 1900 + (localtime)[5];
     my $race_id = "$race-$year";
 
-    for my $key ( keys %$pdf_ref ) {
+    for my $key ( keys %$pdf_href ) {
         my $src = catfile( $race_dir, "$race-$key.pdf" );
         -e $src or die "Error: file $src does not exist\n";
 
@@ -270,7 +262,7 @@ sub update_db
         open my $text, $pipe_cmd
           or die 'unable to open ' . CONVERTER . ": $!";
 
-        my $href = $pdf_ref->{$key};
+        my $href = $pdf_href->{$key};
         my ( $recs, $fk_recs ) = $href->{parser}($text);
 
         if ($fk_recs) {
