@@ -13,7 +13,7 @@ use strict;
 use warnings;
 
 # config constants
-use constant DOCS_DIR    => "$ENV{HOME}/My Documents/F1/2011/";
+use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/2011/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
@@ -25,7 +25,7 @@ use constant TIMING_PAGE => 'timing.aspx';
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 
 # database constants
-use constant DB_PATH => "$ENV{HOME}/My Documents/F1/2011/db/f1_timing.db";
+use constant DB_PATH => "$ENV{HOME}/Documents/F1/2011/db/f1_timing.db";
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
@@ -33,6 +33,20 @@ use constant VERSION => '20110612';
 
 # database handle
 my $dbh = undef;
+
+
+sub conn_factory
+{
+    my ($db_path, $db_pwd, $db_user) = @_;
+
+    my $conn = db_connect;
+
+    sub {
+
+        $conn;
+
+    }
+}
 
 # command line option variables
 my $timing      = undef;
