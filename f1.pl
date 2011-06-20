@@ -225,6 +225,7 @@ sub update_db
         } qw( ^s ^q ^r );
         print "$0 update options:\n\n";
         print "Provide a three letter race id or choose from the following:";
+	print "or choose from the following:";
         print "\n\t", join( "\n\t", @sorted ), "\n";
         return;
     }
@@ -1246,13 +1247,14 @@ Recognized optional values are:
 
 =item
 
-=item B<-u, --update=E<lt>valueE<gt>>
+=item B<-u, --update[=E<lt>valueE<gt>]>
 
-Parse PDF(s) and update database. The required value is either the three
-letter abbreviation as used by the FIA for each race e.g., 'gbr' for the
-British Grand Prix, or the filename of an individual PDF without the file
-suffix e.g., chn-race-analysis. The race codes can be obtained using the
-I<calendar> option, below.
+Parse PDF(s) and update database. The value is can be the three letter race
+id as used by the FIA e.g., 'gbr' for the British Grand Prix, the filename of
+an individual PDF without the file suffix e.g., chn-race-analysis or the id
+with one of the session codes as documented in the I<timing> option. For a full
+list of the available options use the option with a value. The FIA race codes 
+can be obtained using the I<calendar> option, below.
 
 The file path for the required PDF is defined in the script constant
 I<DOCS_DIR>, to which the three letter race code is added e.g, if DOCS_DIR is
@@ -1260,7 +1262,21 @@ set to F</home/username/F1> and the required timing document is mco-race-trap
 the full file path will be F</home/username/F1/mco/mco-race-trap.pdf>.
 
 The search path can be changed on the command line with the docs-dir
-option, below.
+option.
+
+=over 4
+
+=item Examples:
+
+=item --update=gbr		- all British Grand Prix PDFs
+
+=item -u chn-race-analysis	- single named PDF
+
+=item -update=can-q		- all Canadian GP qualifying session PDFs
+
+=item -u			- list all available options
+
+=back
 
 =item B<-c, --calendar[=E<lt>yearE<gt>]>
 
