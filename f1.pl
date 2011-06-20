@@ -31,23 +31,6 @@ use constant DB_USER => q{};
 
 use constant VERSION => '20110612';
 
-# database handle
-my $dbh = undef;
-
-
-sub conn_factory
-{
-    my ($db_path, $db_pwd, $db_user) = @_;
-
-    my $conn = db_connect;
-
-    sub {
-
-        $conn;
-
-    }
-}
-
 # command line option variables
 my $timing      = undef;
 my $update      = undef;
@@ -106,7 +89,10 @@ my $pdf_href = undef;
 
 # helper subs
 use subs qw ( get_docs_dir get_pdf_map get_db_source get_export_map
-  get_doc_sessions);
+  get_doc_sessions db_connect);
+
+# database session handle
+my $db_session = db_connect;
 
 # Process command-line arguments
 #
@@ -845,23 +831,33 @@ sub get_db_source
 
 sub db_connect
 {
-    unless ( $dbh and $dbh->ping ) {
-        my $db_source = 'dbi:SQLite:dbname=' . get_db_source;
-        $dbh = DBI->connect( $db_source, DB_USER, DB_PWD )
-          or die $DBI::errstr;
-        $dbh->{AutoCommit} = 0;
-        $dbh->{RaiseError} = 1;
-        $dbh->do("PRAGMA foreign_keys = ON");
-    }
+    my $db_source = 'dbi:SQLite:dbname=' . get_db_source;
 
-    return $dbh;
+    connection_factory($db_source, DB_PWD, DB_USER);
+}
+
+sub connection_factory
+{
+    my ($db_source, $db_pwd, $db_user) = @_;
+    my $dbh;
+
+    sub {
+        unless ( $dbh and $dbh->ping ) {
+            $dbh = DBI->connect( $db_source, $db_user, $db_pwd )
+                or die $DBI::errstr;
+            $dbh->{AutoCommit} = 0;
+            $dbh->{RaiseError} = 1;
+            $dbh->do("PRAGMA foreign_keys = ON");
+        }
+        $dbh;
+    }
 }
 
 sub db_insert_array
 {
     my ( $race_id, $table, $array_ref ) = @_;
 
-    my $dbh = db_connect;
+    my $dbh = $db_session->();
     my $tuples;
     my @tuple_status;
 
@@ -945,7 +941,7 @@ WHERE season=?
 ORDER BY rd
 SQL
 
-    my $dbh = db_connect;
+    my $dbh = $db_session->();
     my $recs = $dbh->selectall_arrayref( $sql, { Slice => {} }, ($year) );
 
     my ( $rd, $date, $gp, $start, $id );
