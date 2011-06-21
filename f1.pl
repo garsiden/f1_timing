@@ -6,7 +6,7 @@ use HTML::LinkExtor;
 use Term::ReadKey;
 use Getopt::Long;
 use Pod::Usage;
-use File::Spec::Functions;
+use File::Spec::Functions qw(:DEFAULT splitpath );
 use Data::Dumper;
 
 use strict;
@@ -89,7 +89,7 @@ my $pdf_href = undef;
 
 # helper subs
 use subs qw ( get_docs_dir get_pdf_map get_db_source get_export_map
-  get_doc_sessions db_connect);
+  get_doc_sessions db_connect get_timing);
 
 # database session handle
 my $db_session = db_connect;
@@ -101,20 +101,22 @@ unless ($export_opts) { $export_opts = EXPORT_OPT }
 
 if    ($help)               { pod2usage(2) }
 elsif ($man)                { pod2usage( -verbose => 2 ) }
-elsif ($timing)             { get_timing() }
+elsif ( defined $timing )   { get_timing }
 elsif ( defined $update )   { update_db($update) }
 elsif ( defined $calendar ) { show_calendar($calendar) }
 elsif ( defined $export ) { export( $export, $race_id ) }
 elsif ($version)          { print "$0 v@{[VERSION]}\n" }
 elsif ($test) {
-    show_exports();
+    #show_exports();
+    my $filepath = catfile('/Users/garsiden', 'my_file.txt');
+    print $filepath, "\n";
 }
 
 # download timing PDFs from FIA web site
 sub get_timing
 {
     my $check_exists = 1;
-    my ($race, $get_docs, $msg);
+    my ( $race, $get_docs );
 
     # get list of latest pdfs
     my $docs = get_doc_links( TIMING_BASE, TIMING_PAGE );
@@ -122,22 +124,21 @@ sub get_timing
     scalar @$docs > 0
       or die "No timing data currently available.\n";
 
-    $$docs[0] =~ /([a-z123-]+.pdf$)/;    # get race prefix of first PDF
-    $race = substr $1, 0, 3;
+    # get race prefix of first PDF
+    my $file = ( splitpath( $$docs[0] ) )[2];
+    ($race) = $file =~ /^([a-z]{3})-[a-z123-]+.pdf$/
+      or die "Unable to get race id from $$docs[0].\n";
 
-    unless ( length $timing ) {
-        $get_docs = $docs;
+    if ( length $timing ) {
+        my $sess_href = get_doc_sessions;
+        my $sess = lc $timing;
+        defined( my $re = $sess_href->{$sess} )
+          or die "$timing timing option not recognized\n";
+        $get_docs = [ grep { /$re/ } @$docs ];
     }
     else {
-        my $sess_href = get_doc_sessions
-        my $arg = lc $timing;
-        defined( my $re = $sess_href->{$arg} )
-          or die "$timing timing option not recognized\n";
-
-        $get_docs = [ grep /$re/, @$docs ];
+        $get_docs = $docs;
     }
-
-    print Dumper $get_docs if $debug;
 
     my $src_dir = get_docs_dir;
     my $race_dir = catdir( $src_dir, $race );
@@ -149,7 +150,7 @@ sub get_timing
     }
 
     foreach (@$get_docs) {
-        ( my $pdf ) = /([a-z123-]+.pdf$)/;
+        next unless ( my $pdf ) = /([a-z123-]+.pdf$)/;
         my $dest = catfile( $race_dir, $pdf );
         print Dumper $dest if $debug;
         if ( $check_exists and -f $dest ) {
@@ -181,6 +182,8 @@ sub get_timing
             warn "Error downloading $pdf. (Error code: $rc)\n";
         }
     }
+
+    return;
 }
 
 sub get_docs_dir
@@ -205,7 +208,7 @@ sub get_doc_sessions
     $h{thu} = $h{fri};
     $h{sun} = $h{r};
 
-    \%h;
+    return \%h;
 }
 
 sub update_db
@@ -213,36 +216,38 @@ sub update_db
     my $arg = shift;
 
     my ( $race, $session, $timesheet, $pdf_href );
-    my $pdf_map = get_pdf_map;
-    my $len     = length $arg;
+    my $pdf_map   = get_pdf_map;
+    my $len       = length $arg;
     my $sess_href = get_doc_sessions;
 
-    my ( $r, $s );
     if ( $len == 0 ) {
         my @sorted = map {
             my $re = qr/$_/;
-            sort grep /$re/, keys %$pdf_map
+            sort grep { /$re/ } keys %$pdf_map
         } qw( ^s ^q ^r );
         print "$0 update options:\n\n";
         print "Provide a three letter race id or choose from the following:";
-	print "or choose from the following:";
+        print "or choose from the following:";
         print "\n\t", join( "\n\t", @sorted ), "\n";
         return;
     }
-    elsif (( ( $race, $session ) = map lc, split /-/, $arg )
-        && defined $race
-        && defined $session
-        && defined( my $re = $sess_href->{$session} ) )
+    elsif ( ( ( $race, $session ) = map lc, split /-/, $arg )
+        and $race
+        and $session
+        and my $re = $sess_href->{$session} )
     {
-        $pdf_href = { map { $_, $$pdf_map{$_} } grep /$re/, keys %$pdf_map };
+        $pdf_href =
+          { map { $_ => $$pdf_map{$_} } grep { /$re/ } keys %$pdf_map };
+        print Dumper $pdf_href;
+        return;
     }
     elsif ( $len == 3 ) {
-        $race    = $arg;
+        $race     = $arg;
         $pdf_href = $pdf_map;
     }
     elsif ( $len > 3 ) {
-        ((( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/) &&
-        ($pdf_href = { $timesheet => $pdf_map->{$timesheet} }))
+        (         ( ( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/ )
+              and ( $pdf_href = { $timesheet => $pdf_map->{$timesheet} } ) )
           or die "Timing document $arg not recognized\n";
     }
     else {
@@ -261,7 +266,7 @@ sub update_db
         my $pipe_cmd = qq<"@{[CONVERTER]}" @{[CONVERT_OPT]} "$src" - |>;
 
         open my $text, $pipe_cmd
-          or die 'unable to open ' . CONVERTER . ": $!";
+          or die 'unable to open ' . CONVERTER . ": $!\n";
 
         my $href = $pdf_href->{$key};
         my ( $recs, $fk_recs ) = $href->{parser}($text);
@@ -277,8 +282,10 @@ sub update_db
 
         db_insert_array( $race_id, $table, $recs );
         close $text
-          or die 'Unable to close ' . CONVERTER . ": $! $?";
+          or die 'Unable to close ' . CONVERTER . ": $! $?\n";
     }
+
+    return;
 }
 
 sub export
@@ -292,7 +299,7 @@ sub export
     }
 
     my $src = $$map{$value}{src}
-      or die "$value export not found";
+      or die "$value export not found\n";
 
     my $db  = get_db_source;
     my $sql = "SELECT * FROM $src";
@@ -307,12 +314,14 @@ sub export
     my $pipe_cmd = qq <"> . EXPORTER . qq <" $export_opts "$db">;
 
     open my $exporter, "|-", $pipe_cmd
-      or die "Unable to open " . EXPORTER . ": $!";
+      or die "Unable to open " . EXPORTER . ": $!\n";
 
     print $exporter "$sql;";
 
     close $exporter
-      or die "Error closing " . EXPORTER . ": $!";
+      or die "Error closing " . EXPORTER . ": $!\n";
+
+    return;
 }
 
 sub race_history_chart
@@ -346,10 +355,8 @@ sub race_history_chart
         ($time_re)
     /x;
 
-    my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
+    my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs, @drivers );
     my @fields = qw(lap no  pit time);
-    my @drivers;
-    my $laptime;
 
   HEADER:
     while (<$text>) {
@@ -402,7 +409,7 @@ sub provisional_starting_grid
 {
     my $text = shift;
 
-    my $left = qr/
+    my $left_re = qr/
         ($pos_re)\ +
         ($no_re)\ +
         ($driver_re)\**     # one or more asterisks indicate allowed to race
@@ -411,13 +418,13 @@ sub provisional_starting_grid
         ($time_re)?         # possibly no time set
     /x;
 
-    my $right        = qr/($no_re) +($driver_re)\** +($time_re)? +($pos_re)/;
+    my $right_re     = qr/($no_re) +($driver_re)\** +($time_re)? +($pos_re)/;
     my $entrant_line = qr/^ +($entrant_re)/;
     my ( $pos, $no, $driver, $time, $entrant, @recs );
 
     while (<$text>) {
-        if (   ( ( $pos, $no, $driver, $time ) = /$left/ )
-            || ( ( $no, $driver, $time, $pos ) = /$right/ ) )
+        if (   ( ( $pos, $no, $driver, $time ) = /$left_re/ )
+            or ( ( $no, $driver, $time, $pos ) = /$right_re/ ) )
         {
             ($entrant) = ( <$text> =~ /$entrant_line/ );
             push @recs,
@@ -428,7 +435,6 @@ sub provisional_starting_grid
         }
     }
 
-    foreach (@recs) { print $$_{driver}, "\n" }
     return \@recs;
 }
 
@@ -436,9 +442,8 @@ sub race_fastest_laps
 {
     my @fields =
       qw( pos no driver nat entrant time on_lap gap kph time_of_day );
-    my $aref = classification( @_, @fields );
 
-    return $aref;
+    return classification( @_, @fields );
 }
 
 sub race_pit_stop_summary
@@ -601,9 +606,8 @@ sub time_sheet
         )\s?
     /x;
 
-    my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs );
+    my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs, @drivers );
     my @fields = qw(no lap pit time);
-    my @drivers;
 
   HEADER:
     while (<$text>) {
@@ -661,8 +665,7 @@ sub time_sheet
 # used by race fastest laps and practice session classification
 sub classification
 {
-    my $text   = shift;
-    my @fields = @_;
+    my ( $text, @fields ) = @_;
     my $gap_re = '\d{1,2}\.\d\d\d';
 
     my $regex = qr/
@@ -834,24 +837,24 @@ sub db_connect
 {
     my $db_source = 'dbi:SQLite:dbname=' . get_db_source;
 
-    connection_factory($db_source, DB_PWD, DB_USER);
+    return connection_factory( $db_source, DB_PWD, DB_USER );
 }
 
 sub connection_factory
 {
-    my ($db_source, $db_pwd, $db_user) = @_;
+    my ( $db_source, $db_pwd, $db_user ) = @_;
     my $dbh;
 
-    sub {
+    return sub {
         unless ( $dbh and $dbh->ping ) {
             $dbh = DBI->connect( $db_source, $db_user, $db_pwd )
-                or die $DBI::errstr;
+              or die "$DBI::errstr\n";
             $dbh->{AutoCommit} = 0;
             $dbh->{RaiseError} = 1;
             $dbh->do("PRAGMA foreign_keys = ON");
         }
         $dbh;
-    }
+      }
 }
 
 sub db_insert_array
@@ -894,7 +897,7 @@ sub db_insert_array
     if ($@) {
         print "Table: $table\n";
         print Dumper \@tuple_status;
-        warn "Transaction aborted because: $@";
+        warn "Transaction aborted because: $@\n";
         eval { $dbh->rollback };
     }
     else {
@@ -911,7 +914,7 @@ sub get_doc_links
     my $content;
 
     unless ( $content = get $url ) {
-        die "Unable to get $url";
+        die "Unable to get $url\n";
     }
 
     my $parser = HTML::LinkExtor->new;
@@ -926,6 +929,7 @@ sub get_doc_links
         push @docs, $1;
     }
 
+    print Dumper \@docs if $debug;
     return \@docs;
 }
 
@@ -958,8 +962,8 @@ SQL
 $rd, $date,      $gp,             $start,  $id
 .
 
-    $^ = 'CALENDAR_TOP';
-    $~ = 'CALENDAR';
+    local $^ = 'CALENDAR_TOP';
+    local $~ = 'CALENDAR';
 
     for my $rec (@$recs) {
         $rd    = $rec->{rd};
@@ -969,6 +973,8 @@ $rd, $date,      $gp,             $start,  $id
         $id    = $rec->{id};
         write;
     }
+
+    return;
 }
 
 sub show_exports
@@ -994,7 +1000,7 @@ Exports:
     for my $k (
         map {
             my $re = qr/$_/;
-            sort grep /$re/, keys %$href
+            sort grep { /$re/ } keys %$href
         } qw( ^s ^q ^r )
       )
     {
@@ -1002,6 +1008,8 @@ Exports:
         $desc  = $$href{$k}{desc};
         write;
     }
+
+    return;
 }
 
 sub get_export_map
@@ -1161,7 +1169,7 @@ sub get_pdf_map
                 parser => \&race_classification2,
                 table  => 'race_classification',
             },
-            
+
             # TODO
             # 'race-chart'
         };
@@ -1268,13 +1276,13 @@ option.
 
 =item Examples:
 
-=item --update=gbr		- all British Grand Prix PDFs
+=item --update=gbr          - all British Grand Prix PDFs
 
-=item -u chn-race-analysis	- single named PDF
+=item -u chn-race-analysis  - single named PDF
 
-=item -update=can-q		- all Canadian GP qualifying session PDFs
+=item -update=can-q         - all Canadian GP qualifying session PDFs
 
-=item -u			- list all available options
+=item -u                    - list all available options
 
 =back
 
