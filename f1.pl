@@ -217,10 +217,9 @@ sub update_db
 
     my ( $race, $session, $timesheet, $pdf_href );
     my $pdf_map   = get_pdf_map;
-    my $len       = length $arg;
     my $sess_href = get_doc_sessions;
 
-    if ( $len == 0 ) {
+    if ( length $arg == 0 ) {
         my @sorted = map {
             my $re = qr/$_/;
             sort grep { /$re/ } keys %$pdf_map
@@ -231,27 +230,22 @@ sub update_db
         print "\n\t", join( "\n\t", @sorted ), "\n";
         return;
     }
-    elsif ( ( ( $race, $session ) = map lc, split /-/, $arg )
-        and $race
-        and $session
-        and my $re = $sess_href->{$session} )
-    {
-        $pdf_href =
-          { map { $_ => $$pdf_map{$_} } grep { /$re/ } keys %$pdf_map };
-        print Dumper $pdf_href;
-        return;
-    }
-    elsif ( $len == 3 ) {
-        $race     = $arg;
+    elsif ( ($race) = $arg =~ /^([a-z]{3})$/ ) {
         $pdf_href = $pdf_map;
     }
-    elsif ( $len > 3 ) {
-        (         ( ( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/ )
-              and ( $pdf_href = { $timesheet => $pdf_map->{$timesheet} } ) )
-          or die "Timing document $arg not recognized\n";
+    elsif ( ( ( $race, $session ) = $arg =~ /^([a-z]{3})-([a-z1-3]{1,3})$/ )
+        and exists $sess_href->{$session} )
+    {
+        my $re = $sess_href->{$session};
+        $pdf_href = { map { $_ => $$pdf_map{$_} } grep /$re/, keys %$pdf_map };
+    }
+    elsif ( ( ( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/ )
+        and exists $pdf_map->{$timesheet} )
+    {
+        $pdf_href = { $timesheet => $pdf_map->{$timesheet} };
     }
     else {
-        die "Please provide an update argument of at least 3 characters\n";
+        die "Update argument $arg not recognized.\n";
     }
 
     my $race_dir = catdir( get_docs_dir, $race );
