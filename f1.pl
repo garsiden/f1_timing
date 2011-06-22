@@ -472,7 +472,7 @@ sub race_pit_stop_summary
     return \@recs;
 }
 
-sub race_classification2
+sub race_classification
 {
     my $text = shift;
 
@@ -502,59 +502,6 @@ sub race_classification2
             )
         )?\ *
         (?(7)                       # Only if TIME has been set
-            (\d{2,3}\.\d\d\d)\ +    # KPH
-            (\d:\d\d\.\d\d\d)\ +    # BEST
-            (\d{1,2})$              # LAP to eol
-        )
-       /x;
-
-    print Dumper $regex if $debug;
-
-    my @recs;
-    my @fields = qw( pos no driver nat entrant laps total_time
-      gap kph best on_lap );
-
-    while (<$text>) {
-        last if /FASTEST LAP/;
-        my %rec;
-        if ( @rec{@fields} = /$regex/ ) { push @recs, \%rec }
-    }
-
-    return \@recs;
-
-}
-
-sub race_classification
-{
-    my $text = shift;
-
-    my $regex = qr/
-        ($pos_re|DQ)?\ +            # POS
-        ($no_re)\ +                 # NO
-        ($driver_re)                # DRIVER
-        \ *\**\ {2,}                # possible asterisk indicating penalty
-        ($nat_re)\ +                # NAT
-        ($entrant_re?)\ +           # ENTRANT
-        ($lap_re)\ +                # LAPS completed
-        (
-            \d:\d\d:\d\d\.\d\d\d    # total TIME with hours
-            |
-            \d{1,2}:\d\d\.\d\d\d    # total TIME, minutes
-        )?\ *
-        (                           # GAP group
-            (?(?=DNS)               # look ahead condition
-                DNS$                # eol anchor
-                |
-                (?:                 # grouping for GAP else
-                    DNF                     # non finisher
-                    |
-                    \d{1,3}\.\d\d\d         # in seconds
-                    |
-                    \d{1,2}\ +[LAPS]{3,4}   # lap(s) behind
-                )
-            )
-        )?\s+                       # no GAP for winner
-        (?(7)                       # conditional on TIME
             (\d{2,3}\.\d\d\d)\ +    # KPH
             (\d:\d\d\.\d\d\d)\ +    # BEST
             (\d{1,2})$              # LAP to eol
@@ -1160,7 +1107,7 @@ sub get_pdf_map
             },
 
             'race-classification' => {
-                parser => \&race_classification2,
+                parser => \&race_classification,
                 table  => 'race_classification',
             },
 
