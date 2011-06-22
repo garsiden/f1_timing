@@ -126,7 +126,7 @@ sub get_timing
 
     # get race prefix of first PDF
     my $file = ( splitpath( $$docs[0] ) )[2];
-    ($race) = $file =~ /^([a-z]{3})-[a-z123-]+.pdf$/
+    ($race) = $file =~ /^([a-z]{3})-[a-z123-]+\.pdf$/
       or die "Unable to get race id from $$docs[0].\n";
 
     if ( length $timing ) {
@@ -150,7 +150,7 @@ sub get_timing
     }
 
     foreach (@$get_docs) {
-        next unless ( my $pdf ) = /([a-z123-]+.pdf$)/;
+        next unless ( my $pdf ) = /([a-z123-]+\.pdf$)/;
         my $dest = catfile( $race_dir, $pdf );
         print Dumper $dest if $debug;
         if ( $check_exists and -f $dest ) {
