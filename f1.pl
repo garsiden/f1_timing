@@ -13,7 +13,7 @@ use strict;
 use warnings;
 
 # config constants
-use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/2011/";
+use constant DOCS_DIR    => "$ENV{HOME}/My Documents/F1/2011/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
@@ -25,7 +25,7 @@ use constant TIMING_PAGE => 'timing.aspx';
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 
 # database constants
-use constant DB_PATH => "$ENV{HOME}/Documents/F1/2011/db/f1_timing.db";
+use constant DB_PATH => "$ENV{HOME}/My Documents/F1/2011/db/f1_timing.db";
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
@@ -84,15 +84,17 @@ my $lap_re     = '\d{1,2}';
 my $tod_re     = '\d\d:\d\d:\d\d';
 my $nat_re     = '[A-Z]{3}';
 
-# PDF mappings
-my $pdf_href = undef;
-
 # helper subs
-use subs qw ( get_docs_dir get_pdf_map get_db_source get_export_map
-  get_doc_sessions db_connect get_timing);
+use subs qw ( get_docs_dir get_db_source get_timing); 
+
+# use closures for globals
+# PDF mappings
+my $pdf_table  = get_pdf_table();
+my $doc_sessions = get_doc_sessions();
+my $export_map = get_export_map();
 
 # database session handle
-my $db_session = db_connect;
+my $db_session = db_connect();
 
 # Process command-line arguments
 #
@@ -130,7 +132,7 @@ sub get_timing
       or die "Unable to get race id from $$docs[0].\n";
 
     if ( length $timing ) {
-        my $sess_href = get_doc_sessions;
+        my $sess_href = $doc_sessions->();
         my $sess = lc $timing;
         defined( my $re = $sess_href->{$sess} )
           or die "$timing timing option not recognized\n";
@@ -195,20 +197,26 @@ sub get_docs_dir
 
 sub get_doc_sessions
 {
-    my %h = (
-        p1  => qr/session1/,
-        p2  => qr/session2/,
-        p3  => qr/session3/,
-        p   => qr/session[123]/,
-        q   => qr/qualifying/,
-        r   => qr/race/,
-        fri => qr/session[12]/,
-        sat => qr/session3|qualifying/,
-    );
-    $h{thu} = $h{fri};
-    $h{sun} = $h{r};
+    my %hash;
 
-    return \%h;
+    return sub {
+        unless (%hash) {
+            %hash = (
+                p1  => qr/session1/,
+                p2  => qr/session2/,
+                p3  => qr/session3/,
+                p   => qr/session[123]/,
+                q   => qr/qualifying/,
+                r   => qr/race/,
+                fri => qr/session[12]/,
+                sat => qr/session3|qualifying/,
+            );
+            $hash{thu} = $hash{fri};
+            $hash{sun} = $hash{r};
+        }
+
+        return \%hash;
+    }
 }
 
 sub update_db
@@ -216,13 +224,13 @@ sub update_db
     my $arg = shift;
 
     my ( $race, $session, $timesheet, $pdf_href );
-    my $pdf_map   = get_pdf_map;
-    my $sess_href = get_doc_sessions;
+    my $pdf_tab   = $pdf_table->();
+    my $sess_href = $doc_sessions->();
 
     if ( length $arg == 0 ) {
         my @sorted = map {
             my $re = qr/$_/;
-            sort grep { /$re/ } keys %$pdf_map
+            sort grep { /$re/ } keys %$pdf_tab
         } qw( ^s ^q ^r );
         print "$0 update options:\n\n";
         print "Provide a three letter race id or choose from the following:";
@@ -231,18 +239,18 @@ sub update_db
         return;
     }
     elsif ( ($race) = $arg =~ /^([a-z]{3})$/ ) {
-        $pdf_href = $pdf_map;
+        $pdf_href = $pdf_tab;
     }
     elsif ( ( ( $race, $session ) = $arg =~ /^([a-z]{3})-([a-z1-3]{1,3})$/ )
         and exists $sess_href->{$session} )
     {
         my $re = $sess_href->{$session};
-        $pdf_href = { map { $_ => $$pdf_map{$_} } grep /$re/, keys %$pdf_map };
+        $pdf_href = { map { $_ => $$pdf_tab{$_} } grep /$re/, keys %$pdf_tab };
     }
     elsif ( ( ( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/ )
-        and exists $pdf_map->{$timesheet} )
+        and exists $pdf_tab->{$timesheet} )
     {
-        $pdf_href = { $timesheet => $pdf_map->{$timesheet} };
+        $pdf_href = { $timesheet => $pdf_tab->{$timesheet} };
     }
     else {
         die "Update argument $arg not recognized.\n";
@@ -285,7 +293,7 @@ sub update_db
 sub export
 {
     my ( $value, $race_id ) = @_;
-    my $map = get_export_map;
+    my $map = $export_map->();
 
     unless ( length $value ) {
         show_exports($map);
@@ -955,168 +963,177 @@ Exports:
 
 sub get_export_map
 {
-    my $export_href = {
-        'race-laps-xtab' => {
-            src  => 'race_lap_xtab',
-            desc => 'Cross-tab of lap times by lap/car in \'hh:mm:ss.fff\'',
-        },
-        'race-laps' => {
-            src  => 'race_lap_hms',
-            desc => 'Race lap times in \'hh:mm:ss.fff\' format',
-        },
-        'race-drivers' => {
-            src   => 'race_driver',
-            desc  => 'Starting grid drivers',
-            order => 'race_id, no',
-        },
-        'qualifying-laps' => {
-            src  => 'qualifying_lap_hms',
-            desc => 'Qualifying lap times in \'hh:mm:ss.fff\' format',
-        },
-        'qualifying-drivers' => {
-            src   => 'qualifying_driver',
-            desc  => 'Qualifying  drivers',
-            order => 'race_id, no',
-        },
-        'session1-drivers' => {
-            src   => 'practice_1_driver',
-            desc  => 'Practice session 1 drivers',
-            order => 'race_id, no',
-        },
-        'session1-laps' => {
-            src   => 'practice_1_lap_hms',
-            desc  => 'Practice session 1 lap times',
-            order => 'race_id, no',
-        },
-        'session2-drivers' => {
-            src   => 'practice_2_driver',
-            desc  => 'Practice session 2 drivers',
-            order => 'race_id, no',
-        },
-        'session2-laps' => {
-            src   => 'practice_2_lap_hms',
-            desc  => 'Practice session 2 lap times',
-            order => 'race_id, no',
-        },
-        'session3-drivers' => {
-            src   => 'practice_3_driver',
-            desc  => 'Practice session 3 drivers',
-            order => 'race_id, no',
-        },
-        'session3-laps' => {
-            src   => 'practice_3_lap_hms',
-            desc  => 'Practice session 3 lap times',
-            order => 'race_id, no',
-        },
+    my $export_href;
 
-    };
+    return sub {
+        unless ( $export_href ) {
+            $export_href = {
+                'race-laps-xtab' => {
+                    src  => 'race_lap_xtab',
+                    desc => 'Cross-tab of lap times by lap/car in \'hh:mm:ss.fff\'',
+                },
+                'race-laps' => {
+                    src  => 'race_lap_hms',
+                    desc => 'Race lap times in \'hh:mm:ss.fff\' format',
+                },
+                'race-drivers' => {
+                    src   => 'race_driver',
+                    desc  => 'Starting grid drivers',
+                    order => 'race_id, no',
+                },
+                'qualifying-laps' => {
+                    src  => 'qualifying_lap_hms',
+                    desc => 'Qualifying lap times in \'hh:mm:ss.fff\' format',
+                },
+                'qualifying-drivers' => {
+                    src   => 'qualifying_driver',
+                    desc  => 'Qualifying  drivers',
+                    order => 'race_id, no',
+                },
+                'session1-drivers' => {
+                    src   => 'practice_1_driver',
+                    desc  => 'Practice session 1 drivers',
+                    order => 'race_id, no',
+                },
+                'session1-laps' => {
+                    src   => 'practice_1_lap_hms',
+                    desc  => 'Practice session 1 lap times',
+                    order => 'race_id, no',
+                },
+                'session2-drivers' => {
+                    src   => 'practice_2_driver',
+                    desc  => 'Practice session 2 drivers',
+                    order => 'race_id, no',
+                },
+                'session2-laps' => {
+                    src   => 'practice_2_lap_hms',
+                    desc  => 'Practice session 2 lap times',
+                    order => 'race_id, no',
+                },
+                'session3-drivers' => {
+                    src   => 'practice_3_driver',
+                    desc  => 'Practice session 3 drivers',
+                    order => 'race_id, no',
+                },
+                'session3-laps' => {
+                    src   => 'practice_3_lap_hms',
+                    desc  => 'Practice session 3 lap times',
+                    order => 'race_id, no',
+                },
 
-    return $export_href;
+            };
+        }
+
+        return $export_href;
+    }
 }
 
-sub get_pdf_map
+sub get_pdf_table
 {
-    unless ($pdf_href) {
-        $pdf_href = {
+    my $pdf_href;
 
-            # Practice
-            'session1-classification' => {
-                parser => \&practice_session_classification,
-                table  => 'practice_1_classification',
-            },
-            'session1-times' => {
-                parser   => \&time_sheet,
-                table    => 'practice_1_lap_time',
-                fk_table => 'practice_1_driver',
-            },
-            'session2-classification' => {
-                parser => \&practice_session_classification,
-                table  => 'practice_2_classification',
-            },
-            'session2-times' => {
-                parser   => \&time_sheet,
-                table    => 'practice_2_lap_time',
-                fk_table => 'practice_2_driver',
-            },
-            'session3-classification' => {
-                parser => \&practice_session_classification,
-                table  => 'practice_3_classification',
-            },
-            'session3-times' => {
-                parser   => \&time_sheet,
-                table    => 'practice_3_lap_time',
-                fk_table => 'practice_3_driver',
-            },
+    return sub {
+        unless ($pdf_href) {
+            $pdf_href = {
 
-            # Qualifying
-            'qualifying-sectors' => {
-                parser => \&best_sector_times,
-                table  => 'qualifying_best_sector_time',
-            },
-            'qualifying-speeds' => {
-                parser => \&maximum_speeds,
-                table  => 'qualifying_maximum_speed',
-            },
-            'qualifying-times' => {
-                parser   => \&time_sheet,
-                table    => 'qualifying_lap_time',
-                fk_table => 'qualifying_driver',
-            },
-            'qualifying-trap' => {
-                parser => \&speed_trap,
-                table  => 'qualifying_speed_trap',
-            },
-            'qualifying-classification' => {
-                parser => \&qualifying_classification,
-                table  => 'qualifying_classification',
-            },
+                # Practice
+                'session1-classification' => {
+                    parser => \&practice_session_classification,
+                    table  => 'practice_1_classification',
+                },
+                'session1-times' => {
+                    parser   => \&time_sheet,
+                    table    => 'practice_1_lap_time',
+                    fk_table => 'practice_1_driver',
+                },
+                'session2-classification' => {
+                    parser => \&practice_session_classification,
+                    table  => 'practice_2_classification',
+                },
+                'session2-times' => {
+                    parser   => \&time_sheet,
+                    table    => 'practice_2_lap_time',
+                    fk_table => 'practice_2_driver',
+                },
+                'session3-classification' => {
+                    parser => \&practice_session_classification,
+                    table  => 'practice_3_classification',
+                },
+                'session3-times' => {
+                    parser   => \&time_sheet,
+                    table    => 'practice_3_lap_time',
+                    fk_table => 'practice_3_driver',
+                },
 
-            # Race
-            'race-analysis' => {
-                parser   => \&time_sheet,
-                table    => 'race_lap_analysis',
-                fk_table => 'race_driver',
-            },
-            'race-grid' => {
-                parser => \&provisional_starting_grid,
-                table  => 'race_grid',
-            },
-            'race-history' => {
-                parser => \&race_history_chart,
-                table  => 'race_history',
-            },
-            'race-laps' => {
-                parser => \&race_fastest_laps,
-                table  => 'race_fastest_lap',
-            },
-            'race-sectors' => {
-                parser => \&best_sector_times,
-                table  => 'race_best_sector_time',
-            },
-            'race-speeds' => {
-                parser => \&maximum_speeds,
-                table  => 'race_maximum_speed',
-            },
-            'race-summary' => {
-                parser => \&race_pit_stop_summary,
-                table  => 'race_pit_stop_summary',
-            },
-            'race-trap' => {
-                parser => \&speed_trap,
-                table  => 'race_speed_trap',
-            },
+                # Qualifying
+                'qualifying-sectors' => {
+                    parser => \&best_sector_times,
+                    table  => 'qualifying_best_sector_time',
+                },
+                'qualifying-speeds' => {
+                    parser => \&maximum_speeds,
+                    table  => 'qualifying_maximum_speed',
+                },
+                'qualifying-times' => {
+                    parser   => \&time_sheet,
+                    table    => 'qualifying_lap_time',
+                    fk_table => 'qualifying_driver',
+                },
+                'qualifying-trap' => {
+                    parser => \&speed_trap,
+                    table  => 'qualifying_speed_trap',
+                },
+                'qualifying-classification' => {
+                    parser => \&qualifying_classification,
+                    table  => 'qualifying_classification',
+                },
 
-            'race-classification' => {
-                parser => \&race_classification,
-                table  => 'race_classification',
-            },
+                # Race
+                'race-analysis' => {
+                    parser   => \&time_sheet,
+                    table    => 'race_lap_analysis',
+                    fk_table => 'race_driver',
+                },
+                'race-grid' => {
+                    parser => \&provisional_starting_grid,
+                    table  => 'race_grid',
+                },
+                'race-history' => {
+                    parser => \&race_history_chart,
+                    table  => 'race_history',
+                },
+                'race-laps' => {
+                    parser => \&race_fastest_laps,
+                    table  => 'race_fastest_lap',
+                },
+                'race-sectors' => {
+                    parser => \&best_sector_times,
+                    table  => 'race_best_sector_time',
+                },
+                'race-speeds' => {
+                    parser => \&maximum_speeds,
+                    table  => 'race_maximum_speed',
+                },
+                'race-summary' => {
+                    parser => \&race_pit_stop_summary,
+                    table  => 'race_pit_stop_summary',
+                },
+                'race-trap' => {
+                    parser => \&speed_trap,
+                    table  => 'race_speed_trap',
+                },
 
-            # TODO
-            # 'race-chart'
-        };
+                'race-classification' => {
+                    parser => \&race_classification,
+                    table  => 'race_classification',
+                },
+
+                # TODO
+                # 'race-chart'
+            };
+        }
+        return $pdf_href;
     }
-
-    return $pdf_href;
 }
 
 # POD
