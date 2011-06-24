@@ -1,4 +1,3 @@
-# output from f1.pl script
 
 use 5.012;
 
@@ -14,6 +13,13 @@ my $f1 = "$ENV{HOME}/My Documents/Projects/git/f1_timing/f1.pl";
 
 my $out_dir = "$base_dir/$race_id";
 
+# create race directory
+unless (-d "$out_dir") {
+    mkdir "$out_dir"
+        or die "Unable to create directory $out_dir\n";
+}
+
+# output from f1.pl script
 my @exports = qw (
     session1-drivers
     session1-laps
@@ -28,16 +34,12 @@ my @exports = qw (
     race-laps-xtab
 );
 
-# create race directory
-unless (-d "$out_dir") {
-    mkdir "$out_dir"
-        or die "Unable to create directory $out_dir\n";
-}
-
 # output CSV using f1 script
 for my $ex ( @exports ) {
-    my $cmd =  qq!-e $ex -r $race_id-2011 > "$out_dir/$race_id-$ex.csv"!;
+    my $out_file = "$race_id-$ex.csv";
+    my $cmd =  qq!-e $ex -r $race_id-2011 > "$out_dir/$out_file"!;
     qx[perl "$f1" $cmd];
+    say "Script file output: $out_file"; 
 }
 
 #export using sqlite3
@@ -60,23 +62,17 @@ my @tables = qw(
     race_speed_trap
     );
 
-  export($race_id, $out_dir, @tables);
 
-sub export
-{
-    my ($race_id, $out_dir, @tables) = @_;
+my $db = DB_PATH;
+my $export_opts = EXPORT_OPT;
 
-    my $db = DB_PATH;
-    my $export_opts = EXPORT_OPT;
+my $pipe_cmd = qq <"> . EXPORTER . qq <" $export_opts "$db">;
 
-    my $pipe_cmd = qq <"> . EXPORTER . qq <" $export_opts "$db">;
-
-    for my $table (@tables) {
-        my $out_file = "$out_dir/$race_id-$table.csv";
-        $out_file =~ s/_/-/g;
-        my $sql = "SELECT * FROM $table WHERE race_id='$race_id-2011'"; 
-        qx!$pipe_cmd "$sql;" > "$out_file"!;
-    }
-
-    return;
+for my $table (@tables) {
+    my $out_file = "$race_id-$table.csv";
+    my $out_path = "$out_dir/$out_file";
+    $out_path =~ s/_/-/g;
+    my $sql = "SELECT * FROM $table WHERE race_id='$race_id-2011'"; 
+    qx!$pipe_cmd "$sql;" > "$out_path"!;
+    say "SQLite3 file output: $out_file";
 }
