@@ -21,15 +21,15 @@ use constant EXPORT_OPT  => '-csv -header';
 use constant TIMING_BASE => 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
 use constant TIMING_PAGE => 'timing.aspx';
 
-# previous FIA web address
-#  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
-
 # database constants
 use constant DB_PATH => "$ENV{HOME}/My Documents/F1/2011/db/f1_timing.db";
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
-use constant VERSION => '20110612';
+# previous FIA web address
+#  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
+
+use constant VERSION => '20110628';
 
 # command line option variables
 my $timing      = undef;
@@ -137,6 +137,8 @@ sub get_timing
         defined( my $re = $sess_href->{$sess} )
           or die "$timing timing option not recognized\n";
         $get_docs = [ grep { /$re/ } @$docs ];
+        scalar @$get_docs > 0
+          or die "No timing data currently available.\n";
     }
     else {
         $get_docs = $docs;
