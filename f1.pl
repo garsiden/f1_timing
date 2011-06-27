@@ -204,21 +204,45 @@ sub get_doc_sessions
     return sub {
         unless (%hash) {
             %hash = (
-                p1  => qr/session1/,
-                p2  => qr/session2/,
-                p3  => qr/session3/,
-                p   => qr/session[123]/,
-                q   => qr/qualifying/,
-                r   => qr/race/,
-                fri => qr/session[12]/,
-                sat => qr/session3|qualifying/,
+                p1 => {
+                    re   => qr/session1/,
+                    desc => 'practice session 1',
+                },
+                p2 => {
+                    re   => qr/session2/,
+                    desc => 'practice session 2',
+                },
+                p3 => {
+                    re   => qr/session3/,
+                    desc => 'practice session 3',
+                },
+                p => {
+                    re   => qr/session[123]/,
+                    desc => 'all practice sessions',
+                },
+                q => {
+                    re   => qr/qualifying/,
+                    desc => 'qualifying session',
+                },
+                r => {
+                    re   => qr/race/,
+                    desc => 'race',
+                },
+                fri => {
+                    re   => qr/session[12]/,
+                    desc => 'practice sessions 1 & 2',
+                },
+                sat => {
+                    re   => qr/session3|qualifying/,
+                    desc => 'practice session 3 & qualifying',
+                },
             );
             $hash{thu} = $hash{fri};
             $hash{sun} = $hash{r};
         }
 
         return \%hash;
-    }
+      }
 }
 
 sub update_db
@@ -230,14 +254,7 @@ sub update_db
     my $sess_href = $doc_sessions->();
 
     if ( length $arg == 0 ) {
-        my @sorted = map {
-            my $re = qr/$_/;
-            sort grep { /$re/ } keys %$pdf_tab
-        } qw( ^s ^q ^r );
-        print "$0 update options:\n\n";
-        print "Provide a three letter race id or choose from the following:";
-        print "or choose from the following:";
-        print "\n\t", join( "\n\t", @sorted ), "\n";
+        show_update_values();
         return;
     }
     elsif ( ($race) = $arg =~ /^([a-z]{3})$/ ) {
@@ -246,7 +263,7 @@ sub update_db
     elsif ( ( ( $race, $session ) = $arg =~ /^([a-z]{3})-([a-z1-3]{1,3})$/ )
         and exists $sess_href->{$session} )
     {
-        my $re = $sess_href->{$session};
+        my $re = $sess_href->{$session}{re};
         $pdf_href = { map { $_ => $$pdf_tab{$_} } grep /$re/, keys %$pdf_tab };
     }
     elsif ( ( ( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/ )
@@ -963,6 +980,50 @@ Exports:
     return;
 }
 
+sub show_update_values
+{
+    my $pdf_tab = $pdf_table->();
+    my ( @p, @q, @r );
+
+    foreach ( sort keys %$pdf_tab ) {
+        if    (/^s/) { push @p, $_ }
+        elsif (/^q/) { push @q, $_ }
+        elsif (/^r/) { push @r, $_ }
+    }
+
+    push( @p, @q );
+    my $max = $#p > $#r ? $#p : $#r;
+    my ( $col1, $col2 );
+
+format UPDATE_TOP =
+1) Provide a three letter race id to update all
+
+2) Select an individual PDF file:
+.
+
+format UPDATE =
+        @<<<<<<<<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+        $col1,                       $col2
+.
+
+    local $^ = 'UPDATE_TOP';
+    local $~ = 'UPDATE';
+
+    foreach ( 0 .. $max ) {
+        $col1 = $p[$_];
+        $col2 = $r[$_] ? $r[$_] : qq{};
+        write;
+    }
+
+    print "\n3) Session prefixed by race id e.g., gbr-p2\n";
+
+    my $doc_sess = $doc_sessions->();
+    my @sorted = sort { $a->[0] cmp $b->[0] }
+      map { [ $doc_sess->{$_}{desc}, $_ ] } keys %$doc_sess;
+
+    foreach (@sorted) { print "\t$_->[1]\t- $_->[0]\n" }
+}
+
 sub get_export_map
 {
     my $export_href;
@@ -1142,7 +1203,7 @@ sub get_pdf_table
 
 =head1 NAME
 
-f1.pl - Download timing PDFs and update database
+f1.pl - Download FIA timing PDFs and add to database
 
 =head1 SYNOPSIS
 
@@ -1152,20 +1213,20 @@ f1.pl - Download timing PDFs and update database
     -t, --timing[=<value>]  download timing PDFs from FIA web site
     -u, --update[=<pdf>]    parse PDFs and update database     
     -c, --calendar[=<year>] show race calendar for year
-    -q, --quiet             no messages
     -e, --export[=<value>]  export data in CSV format or list options
     -r, --race-id=<value>   filter export data by race id
     --export-opts=<value>   override default export options
     --race-id=<value>       filter export data using race id
     --docs-dir=<path>       use path as source for PDF files
     --db-path=<path>        use path as source for database
+    -q, --quiet             no messages
     --version               print script version
 
     
 =head1 DESCRIPTION
 
-B<f1.pl> will download the latest FIA timing PDF files, extract the data from
-the documents, parse it and add the records to a database. The data can also
+B<f1.pl> will download the latest FIA timing PDF files, extract and parse the
+data from the documents, and add the records to a database. The data can also 
 be exported in CSV format for further analysis.
 
 =head1 OPTIONS
@@ -1174,11 +1235,11 @@ be exported in CSV format for further analysis.
 
 =item B<-help>
 
-Print a brief help message and exits.
+Print a brief help message and exit.
 
 =item B<-man>
 
-Print the manual page and exits.
+Print the manual page and exit.
 
 =item B<-t, --timing[=E<lt>valueE<gt>]>
 
@@ -1217,12 +1278,12 @@ Recognized optional values are:
 
 =item B<-u, --update[=E<lt>valueE<gt>]>
 
-Parse PDF(s) and update database. The value is can be the three letter race
-id as used by the FIA e.g., 'gbr' for the British Grand Prix, the filename of
-an individual PDF without the file suffix e.g., chn-race-analysis or the id
-with one of the session codes as documented in the I<timing> option. For a full
-list of the available options use the option with a value. The FIA race codes 
-can be obtained using the I<calendar> option, below.
+Parse PDF(s) and update database. The value can be the three letter race id 
+as used by the FIA e.g., 'gbr' for the British Grand Prix, the filename of
+an individual PDF without the file suffix e.g., chn-race-analysis or the 
+race id with one of the session codes as documented in the I<timing> option.
+For a list of the recognized values run the the option without a value.
+The FIA race codes can be obtained using the I<calendar> option, below.
 
 The file path for the required PDF is defined in the script constant
 I<DOCS_DIR>, to which the three letter race code is added e.g, if DOCS_DIR is
@@ -1242,7 +1303,7 @@ option.
 
 =item -update=can-q         - all Canadian GP qualifying session PDFs
 
-=item -u                    - list all available options
+=item -u                    - list all recognized values
 
 =back
 
@@ -1250,11 +1311,6 @@ option.
 
 Display race calendar for current year, or if the optional year is provided,
 for that year.
-
-=item B<-q, --quiet>
-
-No messages to confirm the PDF file downloaded of the number of records added
-to each database table.
 
 =item B<-e, --export[=E<lt>valueE<gt>]>
 
@@ -1303,6 +1359,11 @@ I<DOCS_DIR> constant and the environment variable I<F1_TIMING_DOCS_DIR>.
 
 File path of SQLite database. Overrides the path contained in the script
 I<DB_PATH> constant and the I<F1_TIMING_DB_PATH> environment variable.
+
+=item B<-q, --quiet>
+
+No messages to confirm the PDF file downloaded of the number of records added
+to each database table.
 
 =item B<--version>
 
