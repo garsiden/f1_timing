@@ -44,3 +44,5 @@ TODO
 15. Parse race-history with hour+ lap times
 
 16. Format times from race pit stop summary
+
+17. Include DNS in qualifying classifaction parsing
