@@ -7,7 +7,7 @@ REQUIREMENTS
 1.  Perl
 
 Mac OSX and most Linux distributions will already have at least Perl 5.8
-installed which should be okay. The following additional modules are required:
+installed, which should be okay. The following additional modules are required:
 
     LWP::Simple
     HTML::LinkExtor
@@ -18,7 +18,7 @@ installed which should be okay. The following additional modules are required:
 
     perl -MCPAN -e "install 'Some::Module'"
 
-Any dependencies a module may have will be installed first. 
+Any additional dependencies a module may have will be installed first. 
 
 For Windows users I would recommend Strawberry Perl as this already includes
 the modules listed above. If you already have ActivePerl use the ppm package
@@ -28,17 +28,17 @@ manager to get the required modules.
 
 This is a small command line program from the Xpdf PDF file reader application
 which will extract the text from a PDF file. Use the web page addresses below
-to get a version suitable for your platform. Linux users can install the full 
-Xpdf application, or can just get the command line tools with  apt:
+to get a version suitable for your platform. Linux users can install the full
+additional Xpdf application, or can just get the command line tools with apt:
 
         sudo apt-get install poppler-utils
 
 3.  SQLite
 
-This is a light weight database used here to store the data extracted from the
+This is a lightweight database used here to store the data extracted from the
 PDF files. The necessary library files are installed by the Perl DBD::SQLite
-module but the command line program is required to use the export
-functionality of the script and is useful for maintaining the database. For an
+module but the command line program is required to use the export functionality
+of the script and is also useful for maintaining the database. For an
 easy to install graphical interface, users with Firefox can get the SQLite
 Manager add-on.
 
@@ -83,17 +83,16 @@ To tailor the script to your environment set the following constants in the
 f1.pl script:
 
 DOCS_DIR    - path to directory where the PDF files are to be saved
-CONVERTER   - e.g.  'pdftotext' or the full path if not located in your PATH
-              environment variable
-EXPORTER    - sqlite3, or full the path if necessary, e.g.
+CONVERTER   - e.g., 'pdftotext' or the full path to the program if it's not
+              located in your PATH environment variable
+EXPORTER    - sqlite3, or full the path if necessary, e.g.,
               'C:\Program Files\sqlite3'
 
-For Linux users change the first line of the script to the path of your Perl
-installation, and check that the script is executable, i.e.,
+For Linux users, change the first line of the script to the path of your Perl
+installation, and ensure that the script is executable, i.e.,
 
     chmod +x f1.pl
 
-Windows will most likely have the '.pl' suffix associated with Perl; otherwise
-run the script as 'perl f1.pl'
+Windows users should run the script as 'perl f1.pl'.
 
 For further help run 'f1.pl --man' to read the manual.

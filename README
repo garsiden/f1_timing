@@ -4,8 +4,8 @@ F1.PL README
 The timing PDFs from the FIA are normally available very quickly after each
 session or the race but the link can be removed within a few days if there are
 back to back races. It's a good idea to back up the PDFs as the database can
-be re-created from them and the document names will not change from season to
-season and there can be a danger of overwriting them.
+be re-created from them and as the document names will not change from season to
+season there can be a danger of overwriting them.
 
 When updating the database, if there are existing records for the source
 documents they will be deleted first. This is done within a transactions so
@@ -17,7 +17,7 @@ the documents of interest need be added to the database and this can be done
 in any order. The driver tables for each practice session, qualifying and the
 race are updated at the same time as the relevant lap-time table. To get all 
 the race laps times both the race-analysis and the race-history PDFs must be 
-used as the race-analysis has the start time instead of lap time for the 
+used as the race-analysis has the start time instead of a lap time for the 
 first lap. Use one of the race_lap SQL views to get all the lap times. 
 
 Not all the PDFs can be processed; for some races the race-grid and
@@ -36,7 +36,7 @@ errors in computer floating number calculations means that there maybe small
 errors when summing lap times with thousandths of a second. It is possible to 
 create an aggregate extension using the SQLite C API but this would need to be
 compiled separately for each platform. Alternatively it would be possible to
-up size to another RDMS such as PostgreSQL which has better support for time
+up-size to another RDMS such as PostgreSQL which has better support for time
 arithmetic.
 
 There is a SQL query to calculate the cumulative difference between each
@@ -44,4 +44,4 @@ driver's lap time and the race winner's average lap time. It is only for one
 race and is very slow so it would be better in a RDMS with stored procedures
 and windowing functions, such as PostgreSQL 9. Alternatively further analysis
 can be carried out with a spreadsheet using the export function of the Perl
-script or from the Firefox add-in SQLite Manager.
+script or from the Firefox add-in, SQLite Manager.
