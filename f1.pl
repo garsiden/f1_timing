@@ -13,7 +13,7 @@ use strict;
 use warnings;
 
 # config constants
-use constant DOCS_DIR    => "$ENV{HOME}/My Documents/F1/2011/";
+use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/2011/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
@@ -22,7 +22,7 @@ use constant TIMING_BASE => 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
 use constant TIMING_PAGE => 'timing.aspx';
 
 # database constants
-use constant DB_PATH => "$ENV{HOME}/My Documents/F1/2011/db/f1_timing.db";
+use constant DB_PATH => "$ENV{HOME}/Documents/F1/2011/db/f1_timing.db";
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
@@ -85,7 +85,7 @@ my $tod_re     = '\d\d:\d\d:\d\d';
 my $nat_re     = '[A-Z]{3}';
 
 # helper subs
-use subs qw ( get_docs_dir get_db_source get_timing); 
+use subs qw ( get_docs_dir get_db_source get_timing db_connect); 
 
 # use closures for globals
 # PDF mappings
@@ -94,7 +94,7 @@ my $doc_sessions = get_doc_sessions();
 my $export_map = get_export_map();
 
 # database session handle
-my $db_session = db_connect();
+my $db_session = db_connect;
 
 # Process command-line arguments
 #
@@ -106,8 +106,8 @@ elsif ($man)                { pod2usage( -verbose => 2 ) }
 elsif ( defined $timing )   { get_timing }
 elsif ( defined $update )   { update_db($update) }
 elsif ( defined $calendar ) { show_calendar($calendar) }
-elsif ( defined $export ) { export( $export, $race_id ) }
-elsif ($version)          { print "$0 v@{[VERSION]}\n" }
+elsif ( defined $export )   { export( $export, $race_id ) }
+elsif ($version)            { print "$0 v@{[VERSION]}\n" }
 elsif ($test) {
     #show_exports();
     my $filepath = catfile('/Users/garsiden', 'my_file.txt');
@@ -149,7 +149,7 @@ sub get_timing
 
     unless ( -d $race_dir ) {
         mkdir $race_dir
-          or die "Unable to create directory $race_dir: $! $?\n";
+          or die "Unable to create directory $race_dir: $!\n";
         $check_exists = 0;
     }
 
@@ -286,7 +286,7 @@ sub update_db
 
         db_insert_array( $race_id, $table, $recs );
         close $text
-          or die 'Unable to close ' . CONVERTER . ": $! $?\n";
+          or die 'Unable to close ' . CONVERTER . ": $!\n";
     }
 
     return;
@@ -788,12 +788,12 @@ sub db_connect
 {
     my $db_source = 'dbi:SQLite:dbname=' . get_db_source;
 
-    return connection_factory( $db_source, DB_PWD, DB_USER );
+    return connection_factory( $db_source, DB_USER, DB_PWD );
 }
 
 sub connection_factory
 {
-    my ( $db_source, $db_pwd, $db_user ) = @_;
+    my ( $db_source, $db_user , $db_pwd) = @_;
     my $dbh;
 
     return sub {
@@ -1154,7 +1154,7 @@ f1.pl - Download timing PDFs and update database
     -c, --calendar[=<year>] show race calendar for year
     -q, --quiet             no messages
     -e, --export[=<value>]  export data in CSV format or list options
-    -r, --race-id=<value>   filter export data bay race id
+    -r, --race-id=<value>   filter export data by race id
     --export-opts=<value>   override default export options
     --race-id=<value>       filter export data using race id
     --docs-dir=<path>       use path as source for PDF files
