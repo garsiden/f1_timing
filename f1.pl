@@ -7,7 +7,6 @@ use Term::ReadKey;
 use Getopt::Long;
 use Pod::Usage;
 use File::Spec::Functions qw(:DEFAULT splitpath );
-use Data::Dumper;
 
 use strict;
 use warnings;
@@ -33,7 +32,7 @@ use constant VERSION => '20110628';
 
 # command line option variables
 my $timing      = undef;
-my $update      = undef;
+my $import      = undef;
 my $export      = undef;
 my $export_opts = undef;
 my $race_id     = undef;
@@ -45,16 +44,12 @@ my $help        = 0;
 my $man         = 0;
 my $version     = 0;
 
-# test/debug
-my $debug = 0;
-my $test  = 0;
-
 Getopt::Long::Configure qw( no_auto_abbrev bundling);
 GetOptions(
     'timing:s'      => \$timing,
     't:s'           => \$timing,
-    'update:s'      => \$update,
-    'u:s'           => \$update,
+    'import:s'      => \$import,
+    'i:s'           => \$import,
     'export:s'      => \$export,
     'e:s'           => \$export,
     'export-opts=s' => \$export_opts,
@@ -69,8 +64,6 @@ GetOptions(
     'help'          => \$help,
     'man'           => \$man,
     'version'       => \$version,
-    'test'          => \$test,
-    'debug'         => \$debug,
 ) or pod2usage(2);
 
 # shared regexs
@@ -85,13 +78,14 @@ my $tod_re     = '\d\d:\d\d:\d\d';
 my $nat_re     = '[A-Z]{3}';
 
 # helper subs
-use subs qw ( get_docs_dir get_db_source get_timing db_connect); 
+use subs qw ( get_docs_dir get_db_source get_timing db_connect
+  show_import_values);
 
 # use closures for globals
 # PDF mappings
-my $pdf_table  = get_pdf_table();
+my $pdf_table    = get_pdf_table();
 my $doc_sessions = get_doc_sessions();
-my $export_map = get_export_map();
+my $export_map   = get_export_map();
 
 # database session handle
 my $db_session = db_connect;
@@ -104,15 +98,10 @@ unless ($export_opts) { $export_opts = EXPORT_OPT }
 if    ($help)               { pod2usage(2) }
 elsif ($man)                { pod2usage( -verbose => 2 ) }
 elsif ( defined $timing )   { get_timing }
-elsif ( defined $update )   { update_db($update) }
+elsif ( defined $import )   { db_import($import) }
 elsif ( defined $calendar ) { show_calendar($calendar) }
-elsif ( defined $export )   { export( $export, $race_id ) }
-elsif ($version)            { print "$0 v@{[VERSION]}\n" }
-elsif ($test) {
-    #show_exports();
-    my $filepath = catfile('/Users/garsiden', 'my_file.txt');
-    print $filepath, "\n";
-}
+elsif ( defined $export ) { export( $export, $race_id ) }
+elsif ($version) { print "$0 v@{[VERSION]}\n" }
 
 # download timing PDFs from FIA web site
 sub get_timing
@@ -133,7 +122,7 @@ sub get_timing
 
     if ( length $timing ) {
         my $sess_href = $doc_sessions->();
-        my $sess = lc $timing;
+        my $sess      = lc $timing;
         defined( my $re = $sess_href->{$sess} )
           or die "$timing timing option not recognized\n";
         $get_docs = [ grep { /$re/ } @$docs ];
@@ -156,7 +145,7 @@ sub get_timing
     foreach (@$get_docs) {
         next unless ( my $pdf ) = /([a-z123-]+\.pdf$)/;
         my $dest = catfile( $race_dir, $pdf );
-        print Dumper $dest if $debug;
+
         if ( $check_exists and -f $dest ) {
             print "File $dest already exists.\n";
             print "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel)";
@@ -245,19 +234,20 @@ sub get_doc_sessions
       }
 }
 
-sub update_db
+sub db_import
 {
     my $arg = shift;
+
+    if ( length $arg == 0 ) {
+        show_import_values;
+        return;
+    }
 
     my ( $race, $session, $timesheet, $pdf_href );
     my $pdf_tab   = $pdf_table->();
     my $sess_href = $doc_sessions->();
 
-    if ( length $arg == 0 ) {
-        show_update_values();
-        return;
-    }
-    elsif ( ($race) = $arg =~ /^([a-z]{3})$/ ) {
+    if ( ($race) = $arg =~ /^([a-z]{3})$/ ) {
         $pdf_href = $pdf_tab;
     }
     elsif ( ( ( $race, $session ) = $arg =~ /^([a-z]{3})-([a-z1-3]{1,3})$/ )
@@ -297,8 +287,6 @@ sub update_db
             db_insert_array( $race_id, $fk_table, $fk_recs );
         }
 
-        print Dumper($recs) if $debug;
-
         my $table = $href->{table};
 
         db_insert_array( $race_id, $table, $recs );
@@ -325,12 +313,8 @@ sub export
     my $db  = get_db_source;
     my $sql = "SELECT * FROM $src";
 
-    print Dumper $map if $debug;
-
     $sql .= " WHERE race_id='$race_id'" if $race_id;
     if ( my $order = $$map{$value}{order} ) { $sql .= " ORDER BY $order" }
-
-    print "$sql\n" if $debug;
 
     my $pipe_cmd = qq <"> . EXPORTER . qq <" $export_opts "$db">;
 
@@ -383,7 +367,6 @@ sub race_history_chart
     while (<$text>) {
         if ( my @laps = /$header_re/g ) {
 
-            #print Dumper \@laps if $debug;
             # skip empty lines
             do { $line = <$text> } until $line !~ /^\n$/;
 
@@ -488,7 +471,6 @@ sub race_pit_stop_summary
        ($totaltime_re)
     /x;
 
-    print Dumper $regex if $debug;
     my @recs;
 
     while (<$text>) {
@@ -534,8 +516,6 @@ sub race_classification
             (\d{1,2})$              # LAP to eol
         )
        /x;
-
-    print Dumper $regex if $debug;
 
     my @recs;
     my @fields = qw( pos no driver nat entrant laps total_time
@@ -684,8 +664,6 @@ sub qualifying_classification
     /x;
     $regex .= qr/($time_re)? *($lap_re)? *($tod_re)?\s*/ x 2;
 
-    print Dumper $regex if $debug;
-
     my @recs;
     my @fields = qw( pos no q1_time q1_laps percent q1_tod
       q2_time q2_laps q2_tod q3_time q3_laps q3_tod);
@@ -810,7 +788,7 @@ sub db_connect
 
 sub connection_factory
 {
-    my ( $db_source, $db_user , $db_pwd) = @_;
+    my ( $db_source, $db_user, $db_pwd ) = @_;
     my $dbh;
 
     return sub {
@@ -897,7 +875,6 @@ sub get_doc_links
         push @docs, $1;
     }
 
-    print Dumper \@docs if $debug;
     return \@docs;
 }
 
@@ -950,7 +927,7 @@ sub show_exports
     my $href = shift;
     my ( $value, $desc );
 
-    format EXPORTS_TOP =
+format EXPORTS_TOP =
 Exports:
  value                 description
 --------------------- ---------------------------------------------------------
@@ -980,8 +957,10 @@ Exports:
     return;
 }
 
-sub show_update_values
+sub show_import_values
 {
+
+    # filter/sort individual PDFs
     my $pdf_tab = $pdf_table->();
     my ( @p, @q, @r );
 
@@ -995,19 +974,20 @@ sub show_update_values
     my $max = $#p > $#r ? $#p : $#r;
     my ( $col1, $col2 );
 
-format UPDATE_TOP =
-1) Provide a three letter race id to update all
+format IMPORT_TOP =
+Update option values:
+1) Three letter race id to import from all PDFs
 
-2) Select an individual PDF file:
+2) Individual PDF file:
 .
 
-format UPDATE =
+format IMPORT =
         @<<<<<<<<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         $col1,                       $col2
 .
 
-    local $^ = 'UPDATE_TOP';
-    local $~ = 'UPDATE';
+    local $^ = 'IMPORT_TOP';
+    local $~ = 'IMPORT';
 
     foreach ( 0 .. $max ) {
         $col1 = $p[$_];
@@ -1017,11 +997,14 @@ format UPDATE =
 
     print "\n3) Session prefixed by race id e.g., gbr-p2\n";
 
+    # sort session groups by description
     my $doc_sess = $doc_sessions->();
-    my @sorted = sort { $a->[0] cmp $b->[0] }
-      map { [ $doc_sess->{$_}{desc}, $_ ] } keys %$doc_sess;
+    my @sorted =
+      map  { "$_->[1]\t-\t$_->[0]" }
+      sort { $a->[0] cmp $b->[0] }
+      map  { [ $doc_sess->{$_}{desc}, $_ ] } keys %$doc_sess;
 
-    foreach (@sorted) { print "\t$_->[1]\t- $_->[0]\n" }
+    print "\t", join( "\n\t", @sorted ), "\n";
 }
 
 sub get_export_map
@@ -1029,11 +1012,12 @@ sub get_export_map
     my $export_href;
 
     return sub {
-        unless ( $export_href ) {
+        unless ($export_href) {
             $export_href = {
                 'race-laps-xtab' => {
-                    src  => 'race_lap_xtab',
-                    desc => 'Cross-tab of lap times by lap/car in \'hh:mm:ss.fff\'',
+                    src => 'race_lap_xtab',
+                    desc =>
+                      'Cross-tab of lap times by lap/car in \'hh:mm:ss.fff\'',
                 },
                 'race-laps' => {
                     src  => 'race_lap_hms',
@@ -1088,7 +1072,7 @@ sub get_export_map
         }
 
         return $export_href;
-    }
+      }
 }
 
 sub get_pdf_table
@@ -1196,14 +1180,14 @@ sub get_pdf_table
             };
         }
         return $pdf_href;
-    }
+      }
 }
 
 # POD
 
 =head1 NAME
 
-f1.pl - Download FIA timing PDFs and add to database
+f1.pl - Download FIA timing PDFs and import to database
 
 =head1 SYNOPSIS
 
@@ -1211,9 +1195,9 @@ f1.pl - Download FIA timing PDFs and add to database
     --help                  brief help message
     --man                   full documentation
     -t, --timing[=<value>]  download timing PDFs from FIA web site
-    -u, --update[=<pdf>]    parse PDFs and update database     
+    -i, --import[=<pdf>]    parse PDFs and import to database     
     -c, --calendar[=<year>] show race calendar for year
-    -e, --export[=<value>]  export data in CSV format or list options
+    -e, --export[=<value>]  export data in CSV format or list recognized values
     -r, --race-id=<value>   filter export data by race id
     --export-opts=<value>   override default export options
     --race-id=<value>       filter export data using race id
@@ -1276,14 +1260,14 @@ Recognized optional values are:
 
 =item
 
-=item B<-u, --update[=E<lt>valueE<gt>]>
+=item B<-i, --import[=E<lt>valueE<gt>]>
 
-Parse PDF(s) and update database. The value can be the three letter race id 
-as used by the FIA e.g., 'gbr' for the British Grand Prix, the filename of
-an individual PDF without the file suffix e.g., chn-race-analysis or the 
-race id with one of the session codes as documented in the I<timing> option.
-For a list of the recognized values run the the option without a value.
-The FIA race codes can be obtained using the I<calendar> option, below.
+Parse PDF(s) and import into database. The value can be the three letter 
+race id as used by the FIA e.g., 'gbr' for the British Grand Prix, the 
+filename of an individual PDF without the file suffix e.g., chn-race-analysis 
+or the race id with one of the session codes as documented in the I<timing> 
+option.  For a list of the recognized values run the the option without a 
+value.  The FIA race codes can be obtained using the I<calendar> option, below.
 
 The file path for the required PDF is defined in the script constant
 I<DOCS_DIR>, to which the three letter race code is added e.g, if DOCS_DIR is
@@ -1297,13 +1281,13 @@ option.
 
 =item Examples:
 
-=item --update=gbr          - all British Grand Prix PDFs
+=item --import=gbr          - all British Grand Prix PDFs
 
-=item -u chn-race-analysis  - single named PDF
+=item -i chn-race-analysis  - single named PDF
 
-=item -update=can-q         - all Canadian GP qualifying session PDFs
+=item -import=can-q         - all Canadian GP qualifying session PDFs
 
-=item -u                    - list all recognized values
+=item -i                    - list all recognized values
 
 =back
 
