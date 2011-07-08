@@ -13,16 +13,16 @@ use strict;
 use warnings;
 
 # config constants
-use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/2011/";
+use constant DOCS_DIR    => "$ENV{HOME}/My Documents/F1/2011/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
 use constant EXPORT_OPT  => '-csv -header';
-use constant TIMING_BASE => 'http://fia.com/en-GB/mediacentre/f1_media/Pages/';
+use constant TIMING_BASE => 'http://www.fia.com/en-GB/mediacentre/f1_media/Pages/';
 use constant TIMING_PAGE => 'timing.aspx';
 
 # database constants
-use constant DB_PATH => "$ENV{HOME}/Documents/F1/2011/db/f1_timing.db";
+use constant DB_PATH => "$ENV{HOME}/My Documents/F1/2011/db/f1_timing.db";
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
@@ -75,7 +75,7 @@ my $kph_re     = '\d{2,3}\.\d{1,3}';
 my $pos_re     = '\d{1,2}';
 my $no_re      = $pos_re;
 my $lap_re     = '\d{1,2}';
-my $tod_re     = '\d\d:\d\d:\d\d';
+my $tod_re     = '\d{1,2}:\d\d:\d\d';
 my $nat_re     = '[A-Z]{3}';
 
 # helper subs
@@ -547,7 +547,7 @@ sub time_sheet
         (?:                         # TIME - capture separately for formatting 
             (\d:\d\d\.\d\d\d)       # normal lap
             |
-            (\d\d:\d\d:\d\d)        # time of day
+            (\d{1,2}:\d\d:\d\d)     # time of day
             |
             (\d\d:\d\d\.\d\d\d)     # long - 2 digits for minutes
             |
@@ -658,12 +658,12 @@ sub qualifying_classification
         ($pos_re)?\ +
         ($no_re)
         (?:\ +[A-Z].*?)
-        ($time_re)\ *
+        ($laptime_re)\ *
         ($lap_re)?\ *
         ($percent_re)?\ *
         ($tod_re)?\s*
     /x;
-    $regex .= qr/($time_re)? *($lap_re)? *($tod_re)?\s*/ x 2;
+    $regex .= qr/($laptime_re)? *($lap_re)? *($tod_re)?\s*/ x 2;
 
     my @recs;
     my @fields = qw( pos no q1_time q1_laps percent q1_tod
@@ -1043,9 +1043,9 @@ sub get_export_map
                     order => 'race_id, no',
                 },
                 'session1-laps' => {
-                    src   => 'practice_1_lap_hms',
+                    src   => 'practice_1_lap_time',
                     desc  => 'Practice session 1 lap times',
-                    order => 'race_id, no',
+                    order => 'race_id, no, lap',
                 },
                 'session2-drivers' => {
                     src   => 'practice_2_driver',
@@ -1053,9 +1053,9 @@ sub get_export_map
                     order => 'race_id, no',
                 },
                 'session2-laps' => {
-                    src   => 'practice_2_lap_hms',
+                    src   => 'practice_2_lap_time',
                     desc  => 'Practice session 2 lap times',
-                    order => 'race_id, no',
+                    order => 'race_id, no, lap',
                 },
                 'session3-drivers' => {
                     src   => 'practice_3_driver',
@@ -1063,9 +1063,9 @@ sub get_export_map
                     order => 'race_id, no',
                 },
                 'session3-laps' => {
-                    src   => 'practice_3_lap_hms',
+                    src   => 'practice_3_lap_time',
                     desc  => 'Practice session 3 lap times',
-                    order => 'race_id, no',
+                    order => 'race_id, no, lap',
                 },
 
             };
