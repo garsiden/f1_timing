@@ -7,6 +7,7 @@ use Term::ReadKey;
 use Getopt::Long;
 use Pod::Usage;
 use File::Spec::Functions qw(:DEFAULT splitpath );
+use Data::Dumper;
 
 use strict;
 use warnings;
@@ -123,7 +124,7 @@ sub get_timing
     if ( length $timing ) {
         my $sess_href = $doc_sessions->();
         my $sess      = lc $timing;
-        defined( my $re = $sess_href->{$sess} )
+        defined( my $re = $sess_href->{$sess}{re} )
           or die "$timing timing option not recognized\n";
         $get_docs = [ grep { /$re/ } @$docs ];
         scalar @$get_docs > 0
@@ -262,7 +263,7 @@ sub db_import
         $pdf_href = { $timesheet => $pdf_tab->{$timesheet} };
     }
     else {
-        die "Update argument $arg not recognized.\n";
+        die "Import argument $arg not recognized.\n";
     }
 
     my $race_dir = catdir( get_docs_dir, $race );
@@ -356,7 +357,7 @@ sub race_history_chart
             |
                 \ +         # empty field on lap 1
             )?
-         \ +
+        \ + 
         ($time_re)
     /x;
 
@@ -842,7 +843,6 @@ sub db_insert_array
     };
     if ($@) {
         print "Table: $table\n";
-        print Dumper \@tuple_status;
         warn "Transaction aborted because: $@\n";
         eval { $dbh->rollback };
     }
@@ -975,7 +975,7 @@ sub show_import_values
     my ( $col1, $col2 );
 
 format IMPORT_TOP =
-Update option values:
+Import option values:
 1) Three letter race id to import from all PDFs
 
 2) Individual PDF file:
@@ -990,7 +990,7 @@ format IMPORT =
     local $~ = 'IMPORT';
 
     foreach ( 0 .. $max ) {
-        $col1 = $p[$_];
+        $col1 = $p[$_] ? $p[$_] : qq{};
         $col2 = $r[$_] ? $r[$_] : qq{};
         write;
     }
@@ -1187,7 +1187,7 @@ sub get_pdf_table
 
 =head1 NAME
 
-f1.pl - Download FIA timing PDFs and import to database
+f1.pl - Download FIA timing PDFs and import to database.
 
 =head1 SYNOPSIS
 
@@ -1336,7 +1336,7 @@ See the SQLite help for more formats and options.
 
 =item B<-d, --docs-dir=E<lt>pathE<gt>>
 
-Search <path> for timing PDFs. Over-rides the path contained in the script
+Search <path> for timing PDFs. Overrides the path contained in the script
 I<DOCS_DIR> constant and the environment variable I<F1_TIMING_DOCS_DIR>.
 
 =item B<--db-path=E<lt>pathE<gt>>
