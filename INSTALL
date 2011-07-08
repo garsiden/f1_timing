@@ -29,7 +29,7 @@ manager to get the required modules.
 This is a small command line program from the Xpdf PDF file reader application
 which will extract the text from a PDF file. Use the web page addresses below
 to get a version suitable for your platform. Linux users can install the full
-additional Xpdf application, or can just get the command line tools with apt:
+Xpdf application, or can just get the command line tools with apt:
 
         sudo apt-get install poppler-utils
 

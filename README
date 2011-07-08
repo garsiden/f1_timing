@@ -2,29 +2,30 @@ F1.PL README
 ============
 
 The timing PDFs from the FIA are normally available very quickly after each
-session or the race but the link can be removed within a few days if there are
-back to back races. It's a good idea to back up the PDFs as the database can
-be re-created from them and as the document names will not change from season to
-season there can be a danger of overwriting them.
+session but the links can be removed within a few days if there are back to
+back races. It's a good idea to back up the PDFs as the database can
+be re-created from them at any time, but as the document names will not
+change from season to season there can be a danger of overwriting them.
 
 When updating the database, if there are existing records for the source
 documents they will be deleted first. This is done within a transactions so
-the delete will only be successful if all the new records are added.
+the delete will only be carried out if all the new records are successfully
+added.
 
 The database isn't fully relational or normalized, e.g., the drivers' names
 are included in the race_fastest_lap, as this minimizes the dependencies. Only
 the documents of interest need be added to the database and this can be done
-in any order. The driver tables for each practice session, qualifying and the
-race are updated at the same time as the relevant lap-time table. To get all 
-the race laps times both the race-analysis and the race-history PDFs must be 
-used as the race-analysis has the start time instead of a lap time for the 
-first lap. Use one of the race_lap SQL views to get all the lap times. 
+in any order. The driver tables for each practice, qualifying and the race are
+updated at the same time as the relevant lap-time table. To get all the race
+laps times both the race-analysis and the race-history PDFs must be used as
+the race-analysis has the start time instead of a lap time for the first lap.
+Use one of the race_lap SQL views to get all the lap times. 
 
-Not all the PDFs can be processed; for some races the race-grid and
-qualifying-classification documents are facsimiles of the time sheets signed
-by the stewards from which the text cannot be extracted. Also, unusual race
-events may mean that the regular expressions used in the script to parse the
-text may not work correctly or that the layout of the timing sheet is
+Not all the PDFs can be processed; for some races the race grid and the race
+and qualifying classification documents are facsimiles of the time sheets
+signed by the stewards from which the text cannot be extracted. Also, unusual
+race events may mean that the regular expressions used in the script to parse
+the text may not work correctly or that the layout of the timing sheet is
 compromised e.g., on lap 25 in the Race History Chart for the 2011 Canadian
 Grand Prix there is insufficient space for both the lap time (which includes
 the red flag period) and the gap.
@@ -33,7 +34,7 @@ SQLite3 has been used for the database as it's small and easy to install but
 it is not ideal for accurate time arithmetic. Time is expressed as a decimal
 value, e.g., 0.5 is 12 hours or midnight, so this together with rounding 
 errors in computer floating number calculations means that there maybe small 
-errors when summing lap times with thousandths of a second. It is possible to 
+errors when summing lap times to thousandths of a second. It is possible to 
 create an aggregate extension using the SQLite C API but this would need to be
 compiled separately for each platform. Alternatively it would be possible to
 up-size to another RDMS such as PostgreSQL which has better support for time
