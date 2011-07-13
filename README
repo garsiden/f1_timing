@@ -15,11 +15,11 @@ added.
 The database isn't fully relational or normalized, e.g., the drivers' names
 are included in the race_fastest_lap, as this minimizes the dependencies. Only
 the documents of interest need be added to the database and this can be done
-in any order. The driver tables for each practice, qualifying and the race are
-updated at the same time as the relevant lap-time table. To get all the race
-laps times both the race-analysis and the race-history PDFs must be used as
-the race-analysis has the start time instead of a lap time for the first lap.
-Use one of the race_lap SQL views to get all the lap times. 
+in any order. The driver tables for each practice, qualifying session and the
+race are updated at the same time as the relevant lap-time table. To get all
+the race lap times both the race-analysis and the race-history PDFs must be
+used as the race-analysis has the start time instead of a lap time for the
+first lap.  Use one of the race_lap SQL views to get all the lap times. 
 
 Not all the PDFs can be processed; for some races the race grid and the race
 and qualifying classification documents are facsimiles of the time sheets
