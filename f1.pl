@@ -13,16 +13,17 @@ use strict;
 use warnings;
 
 # config constants
-use constant DOCS_DIR    => "$ENV{HOME}/My Documents/F1/2011/";
+use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/2011/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
 use constant EXPORT_OPT  => '-csv -header';
-use constant TIMING_BASE => 'http://www.fia.com/en-GB/mediacentre/f1_media/Pages/';
+use constant TIMING_BASE =>
+  'http://www.fia.com/en-GB/mediacentre/f1_media/Pages/';
 use constant TIMING_PAGE => 'timing.aspx';
 
 # database constants
-use constant DB_PATH => "$ENV{HOME}/My Documents/F1/2011/db/f1_timing.db";
+use constant DB_PATH => "$ENV{HOME}/Documents/F1/2011/db/f1_timing.db";
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
@@ -83,7 +84,6 @@ use subs qw ( get_docs_dir get_db_source get_timing db_connect
   show_import_values);
 
 # use closures for globals
-# PDF mappings
 my $pdf_table    = get_pdf_table();
 my $doc_sessions = get_doc_sessions();
 my $export_map   = get_export_map();
@@ -927,7 +927,7 @@ sub show_exports
     my $href = shift;
     my ( $value, $desc );
 
-format EXPORTS_TOP =
+    format EXPORTS_TOP =
 Exports:
  value                 description
 --------------------- ---------------------------------------------------------
@@ -974,14 +974,14 @@ sub show_import_values
     my $max = $#p > $#r ? $#p : $#r;
     my ( $col1, $col2 );
 
-format IMPORT_TOP =
+    format IMPORT_TOP =
 Import option values:
 1) Three letter race id to import from all PDFs
 
 2) Individual PDF file:
 .
 
-format IMPORT =
+    format IMPORT =
         @<<<<<<<<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         $col1,                       $col2
 .
@@ -1029,8 +1029,9 @@ sub get_export_map
                     order => 'race_id, no',
                 },
                 'qualifying-laps' => {
-                    src  => 'qualifying_lap_hms',
+                    src  => 'qualifying_lap_time',
                     desc => 'Qualifying lap times in \'hh:mm:ss.fff\' format',
+                    order => 'race_id, no, lap',
                 },
                 'qualifying-drivers' => {
                     src   => 'qualifying_driver',
