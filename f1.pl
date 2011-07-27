@@ -30,7 +30,7 @@ use constant DB_USER => q{};
 # previous FIA web address
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 
-use constant VERSION => '20110628';
+use constant VERSION => '20110802';
 
 # command line option variables
 my $timing      = undef;
@@ -896,13 +896,13 @@ SQL
 
     my ( $rd, $date, $gp, $start, $id );
 
-    format CALENDAR_TOP =
+format CALENDAR_TOP =
 
  rnd     date     grand prix        start  id
 -----------------------------------------------
 .
 
-    format CALENDAR =
+format CALENDAR =
 @||||@||||||||||||@<<<<<<<<<<<<<<<@||||||||@<<<
 $rd, $date,      $gp,             $start,  $id
 .
@@ -927,13 +927,13 @@ sub show_exports
     my $href = shift;
     my ( $value, $desc );
 
-    format EXPORTS_TOP =
+format EXPORTS_TOP =
 Exports:
  value                 description
 --------------------- ---------------------------------------------------------
 .
 
-    format EXPORTS=
+format EXPORTS=
  @<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
  $value,               $desc 
 .
@@ -974,14 +974,14 @@ sub show_import_values
     my $max = $#p > $#r ? $#p : $#r;
     my ( $col1, $col2 );
 
-    format IMPORT_TOP =
+format IMPORT_TOP =
 Import option values:
 1) Three letter race id to import from all PDFs
 
 2) Individual PDF file:
 .
 
-    format IMPORT =
+format IMPORT =
         @<<<<<<<<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         $col1,                       $col2
 .
@@ -1029,8 +1029,8 @@ sub get_export_map
                     order => 'race_id, no',
                 },
                 'qualifying-laps' => {
-                    src  => 'qualifying_lap_time',
-                    desc => 'Qualifying lap times in \'hh:mm:ss.fff\' format',
+                    src   => 'qualifying_lap_time',
+                    desc  => 'Qualifying lap times in \'hh:mm:ss.fff\' format',
                     order => 'race_id, no, lap',
                 },
                 'qualifying-drivers' => {
@@ -1378,6 +1378,10 @@ Path to SQLite database file.
 Some documents cannot be converted to text by pdftotext. These are typically
 the facsimile type documents such as the provisional grid and qualifying
 classification which are signed by the stewards.
+
+The three letter country code in the PDF documents' name may be different from
+that used as the race id in the database. If the records are not added to the
+database check the id field in the race table and update accordingly.
 
 The regular expressions used to parse the text may fail when there are unusual
 race events or anything else that changes the format of the PDFs.
