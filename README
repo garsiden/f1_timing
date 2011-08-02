@@ -21,8 +21,8 @@ the race lap times both the race-analysis and the race-history PDFs must be
 used as the race-analysis has the start time instead of a lap time for the
 first lap.  Use one of the race_lap SQL views to get all the lap times. 
 
-Not all the PDFs can be processed; for some races the race grid and the race
-and qualifying classification documents are facsimiles of the time sheets
+Not all the PDFs can be processed;  the race grid and the race and qualifying
+classification documents are updated with facsimile versions of the time sheets
 signed by the stewards from which the text cannot be extracted. Also, unusual
 race events may mean that the regular expressions used in the script to parse
 the text may not work correctly or that the layout of the timing sheet is
