@@ -6,7 +6,7 @@ INSERT INTO "race" VALUES('gbr-2011','09','2011-07-10','British','Silverstone Ci
 INSERT INTO "race" VALUES('can-2011','07','2011-06-12','Canadian','Circuit Gilles Villeneuve, Canada','12:00','16:00',4.361,2.709,70);
 INSERT INTO "race" VALUES('chn-2011','03','2011-04-17','Chinese','Shanghai International Circuit, China','15:00','07:00',5.451,3.387,56);
 INSERT INTO "race" VALUES('eur-2011','08','2011-06-26','European','Valencia, Spain','14:00','12:00',5.419,3.367,57);
-INSERT INTO "race" VALUES('deu-2011','10','2011-07-24','German','Nurburgring, Germany','14:00','12:00',4.574,2.842,67);
+INSERT INTO "race" VALUES('ger-2011','10','2011-07-24','German','Nurburgring, Germany','14:00','12:00',4.574,2.842,67);
 INSERT INTO "race" VALUES('hun-2011','11','2011-07-31','Hungarian','Hungaroring, Budapest, Hungary','14:00','12:00',4.381,2.722,70);
 INSERT INTO "race" VALUES('ind-2011','17','2011-10-30','Indian','Buddh International Circuit, Greater Noida, India','15:00','09:30',5.137,3.192,60);
 INSERT INTO "race" VALUES('ita-2011','13','2011-09-11','Italian','Autodromo Nazionale Monza, Italy','14:00','12:00',5.793,3.6,53);
