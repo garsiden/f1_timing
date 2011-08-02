@@ -95,3 +95,13 @@ installation, and ensure that the script is executable, i.e.,
 Windows users should run the script as 'perl f1.pl'.
 
 For further help run 'f1.pl --man' to read the manual.
+
+
+LATEST VERSION
+==============
+
+The latest version of the script and SQL files can be obtained from:
+
+github.com/garsiden/f1_timing
+
+Use the download link on the page to just get the latest version.
