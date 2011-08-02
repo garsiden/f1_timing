@@ -52,4 +52,5 @@ MAX(CASE WHEN no =  24 THEN
 MAX(CASE WHEN no =  25 THEN
     (SELECT round(SUM(diff), 3) FROM race_lap_diff x WHERE x.lap<=y.lap AND x.no=y.no) ELSE NULL END) AS "25"
 FROM race_lap_sec y
+WHERE y.race_id='hun-2011'
 GROUP BY race_id, lap;
