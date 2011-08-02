@@ -5,8 +5,8 @@ use constant EXPORTER    => 'sqlite3';
 use constant EXPORT_OPT  => '-csv -header';
 use constant DB_PATH => "$ENV{HOME}/My Documents/F1/2011/db/f1_timing.db";
 
-my $base_dir = "$ENV{HOME}/My Documents/F1/test/output";
-my $f1 = "$ENV{HOME}/My Documents/Projects/git/f1_timing/f1.pl";
+my $base_dir = "$ENV{HOME}/My Documents/F1/test_data/output";
+my $f1 = "$ENV{HOME}/My Documents/F1/f1.pl";
 
 (my $race_id = shift)
     or die "Please provide a race_id value\n";
@@ -70,8 +70,8 @@ my $pipe_cmd = qq <"> . EXPORTER . qq <" $export_opts "$db">;
 
 for my $table (@tables) {
     my $out_file = "$race_id-$table.csv";
+    $out_file =~ s/_/-/g;
     my $out_path = "$out_dir/$out_file";
-    $out_path =~ s/_/-/g;
     my $sql = "SELECT * FROM $table WHERE race_id='$race_id-2011'"; 
     qx!$pipe_cmd "$sql;" > "$out_path"!;
     say "SQLite3 file output: $out_file";
