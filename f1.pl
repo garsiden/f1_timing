@@ -7,27 +7,32 @@ use Term::ReadKey;
 use Getopt::Long;
 use Pod::Usage;
 use File::Spec::Functions qw(:DEFAULT splitpath );
+use Data::Dumper;
 
 use strict;
 use warnings;
 
 # config constants
-use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/2011/";
+use constant SEASON      => '2012';
+use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
 use constant EXPORT_OPT  => '-csv -header';
-use constant TIMING_BASE =>
-  'http://www.fia.com/en-GB/mediacentre/f1_media/Pages/';
+use constant TIMING_BASE => 'http://184.106.145.74/fia-f1/';
 use constant TIMING_PAGE => 'timing.aspx';
 
+# http://184.106.145.74/fia-f1/f1-2012/f1-2012-08/eur-f1-2012-fp1-times.pdf
 # database constants
-use constant DB_PATH => "$ENV{HOME}/Documents/F1/2011/db/f1_timing.db";
+
+use constant DB_PATH => "$ENV{HOME}/Documents/F1/" . SEASON
+  . '/db/f1_timing.db';
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
 # previous FIA web address
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
+#  'http://www.fia.com/en-GB/mediacentre/f1_media/Pages/';
 
 use constant VERSION => '20110802';
 
@@ -103,8 +108,107 @@ elsif ( defined $calendar ) { show_calendar($calendar) }
 elsif ( defined $export ) { export( $export, $race_id ) }
 elsif ($version) { print "$0 v@{[VERSION]}\n" }
 
-# download timing PDFs from FIA web site
 sub get_timing
+{
+    my $check_exists = 1;
+    my $pdf_tab      = $pdf_table->();
+    my ( $race, $get_docs );
+
+    # check for timing arguments e.g., p1, fri, q
+    if ( length $timing ) {
+        my $sess_href = $doc_sessions->();
+        my $sess      = lc $timing;
+        defined( my $re = $sess_href->{$sess}{re} )
+          or die "$timing timing option not recognized\n";
+        $get_docs = [ grep { /$re/ } keys %$pdf_tab ];
+    }
+    else {
+        $get_docs = $pdf_tab;
+    }
+
+    # ensure 'race' argument also provided, and what format used
+    $race_id
+      or die "Race id argument required\n";
+
+    my ( $season, $id, $rd );
+
+    for ($race_id) {
+        ( $season, $id ) = /^(\d\d\d\d)-([A-z]{3})$/ and last;
+        ( $season, $rd ) = /^(\d\d\d\d)-(\d{1,2}$)/  and last;
+        ($id) = /^([A-z]{3})$/ and last;
+        ($rd) = /^(\d{1,2})$/  and last;
+        die "Race id '$race_id' format not recognized.\n";
+    }
+
+    # season, race id and round all required
+    $season = SEASON unless $season;
+
+    if ($rd) {
+        $rd = sprintf( "%02d", $rd );
+        $id = get_race_id( $season, $rd )
+          or die "Unable to get race id for round $rd in season $season\n";
+    }
+    else {
+        $rd = get_race_rd( $season, $id )
+          or die "Unable to find round for race id '$id' in season $season\n";
+    }
+
+    print "$season\t$id\t$rd\n";
+    print Dumper $get_docs;
+
+    my $docs_dir = get_docs_dir $season;
+    my $race_dir = catdir( $docs_dir, $id );
+
+    unless ( -d $race_dir ) {
+        mkdir $race_dir
+          or die "Unable to create directory $race_dir: $!\n";
+        $check_exists = 0;
+    }
+
+    my $base_src = TIMING_BASE . "f1-$season/f1-$season-$rd/";
+
+    foreach (@$get_docs) {
+        my $pdf = $$pdf_tab{$_}{source} . '.pdf';
+        my $src = $base_src . $pdf;
+        my $dest = catfile( $race_dir, $_ . '.pdf' );
+        print $src, "\n";
+        print $dest, "\n";
+        if ( $check_exists and -f $dest ) {
+            print "File $dest already exists.\n";
+            print "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel)";
+            print "\n" if $^O =~ /MSWin/;
+            ReadMode 'cbreak';
+            my $answer = lc ReadKey(0);
+            ReadMode 'normal';
+
+            while ( index( 'ynac', $answer ) < 0 ) {
+                print "\nPlease enter [y]es/[n]o/[a]ll/[c]ancel)?";
+                print "\n" if $^O =~ /MSWin/;
+                ReadMode 'cbreak';
+                $answer = lc ReadKey(0);
+                ReadMode 'normal';
+            }
+
+            print "\n";
+            if    ( $answer eq 'c' ) { exit; }
+            elsif ( $answer eq 'n' ) { next; }
+            elsif ( $answer eq 'a' ) { $check_exists = 0; }
+        }
+
+        if ( ( my $rc = getstore( $src, $dest ) ) == RC_OK ) {
+            print "Downloaded $pdf.\n" unless $quiet;
+        }
+        else {
+            warn "Error downloading $pdf. (Error code: $rc)\n";
+        }
+    }
+
+    return;
+
+}
+
+# download timing PDFs from FIA web site
+sub get_timing_2
 {
     my $check_exists = 1;
     my ( $race, $get_docs );
@@ -181,9 +285,12 @@ sub get_timing
 
 sub get_docs_dir
 {
+    my $season = shift;
+    $season = $season ||= SEASON;
     if ($docs_dir) { return $docs_dir }
     elsif ( my $env = $ENV{F1_TIMING_DOCS_DIR} ) { return $env }
-    else                                         { return DOCS_DIR }
+    else { return DOCS_DIR . $season . '/' }
+
 }
 
 sub get_doc_sessions
@@ -877,6 +984,50 @@ sub get_doc_links
     return \@docs;
 }
 
+sub get_race_id
+{
+    my ( $season, $rd ) = @_;
+    my $id;
+    my $sql = <<'SQL';
+SELECT id
+FROM calendar
+WHERE season=? AND rd=?
+SQL
+
+    my $dbh = $db_session->();
+    my $sth = $dbh->prepare($sql);
+    $sth->execute( $season, $rd );
+    unless ( $id = $sth->fetchrow_array ) {
+        if ( $sth->err ) {
+            warn "Database error: $sth->errstr\n";
+        }
+
+    }
+    return $id;
+}
+
+sub get_race_rd
+{
+    my ( $season, $id ) = @_;
+    my $rd;
+    my $sql = <<'SQL';
+SELECT rd
+FROM calendar
+WHERE season=? AND id=?
+SQL
+
+    my $dbh = $db_session->();
+    my $sth = $dbh->prepare($sql);
+    $sth->execute( $season, $id );
+    unless ( $rd = $sth->fetchrow_array ) {
+        if ( $sth->err ) {
+            warn "Database error: $sth->errstr\n";
+        }
+
+    }
+    return $rd;
+}
+
 sub show_calendar
 {
     my $year = shift;
@@ -895,13 +1046,13 @@ SQL
 
     my ( $rd, $date, $gp, $start, $id );
 
-format CALENDAR_TOP =
+    format CALENDAR_TOP =
 
  rnd     date     grand prix        start  id
 -----------------------------------------------
 .
 
-format CALENDAR =
+    format CALENDAR =
 @||||@||||||||||||@<<<<<<<<<<<<<<<@||||||||@<<<
 $rd, $date,      $gp,             $start,  $id
 .
@@ -926,13 +1077,13 @@ sub show_exports
     my $href = shift;
     my ( $value, $desc );
 
-format EXPORTS_TOP =
+    format EXPORTS_TOP =
 Exports:
  value                 description
 --------------------- ---------------------------------------------------------
 .
 
-format EXPORTS=
+    format EXPORTS=
  @<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
  $value,               $desc 
 .
@@ -973,14 +1124,14 @@ sub show_import_values
     my $max = $#p > $#r ? $#p : $#r;
     my ( $col1, $col2 );
 
-format IMPORT_TOP =
+    format IMPORT_TOP =
 Import option values:
 1) Three letter race id to import from all PDFs
 
 2) Individual PDF file:
 .
 
-format IMPORT =
+    format IMPORT =
         @<<<<<<<<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         $col1,                       $col2
 .
@@ -1087,52 +1238,63 @@ sub get_pdf_table
                 'session1-classification' => {
                     parser => \&practice_session_classification,
                     table  => 'practice_1_classification',
+                    source => 'First Practice Session Classification',
                 },
                 'session1-times' => {
                     parser   => \&time_sheet,
                     table    => 'practice_1_lap_time',
                     fk_table => 'practice_1_driver',
+                    source   => 'First Practice Session Lap Times',
                 },
                 'session2-classification' => {
                     parser => \&practice_session_classification,
                     table  => 'practice_2_classification',
+                    source => 'Second Practice Session Classification',
                 },
                 'session2-times' => {
                     parser   => \&time_sheet,
                     table    => 'practice_2_lap_time',
                     fk_table => 'practice_2_driver',
+                    source   => 'Second Practice Session Lap Times',
                 },
                 'session3-classification' => {
                     parser => \&practice_session_classification,
                     table  => 'practice_3_classification',
+                    source => 'Third Practice Session Classification',
                 },
                 'session3-times' => {
                     parser   => \&time_sheet,
                     table    => 'practice_3_lap_time',
                     fk_table => 'practice_3_driver',
+                    source   => 'Third Practice Session Lap Times',
                 },
 
                 # Qualifying
                 'qualifying-sectors' => {
                     parser => \&best_sector_times,
                     table  => 'qualifying_best_sector_time',
+                    source => 'Qualifying Session Best Sector Times',
                 },
                 'qualifying-speeds' => {
                     parser => \&maximum_speeds,
                     table  => 'qualifying_maximum_speed',
+                    source => 'Qualifying Session Maximum Speeds',
                 },
                 'qualifying-times' => {
                     parser   => \&time_sheet,
                     table    => 'qualifying_lap_time',
                     fk_table => 'qualifying_driver',
+                    source   => 'Qualifying Session Lap Times',
                 },
                 'qualifying-trap' => {
                     parser => \&speed_trap,
                     table  => 'qualifying_speed_trap',
+                    source => 'Qualifying Session Speed Trap',
                 },
                 'qualifying-classification' => {
                     parser => \&qualifying_classification,
                     table  => 'qualifying_classification',
+                    source => 'Qualifying Session Preliminary Classification',
                 },
 
                 # Race
@@ -1140,6 +1302,7 @@ sub get_pdf_table
                     parser   => \&time_sheet,
                     table    => 'race_lap_analysis',
                     fk_table => 'race_driver',
+                    source   => 'Race Lap Analysis',
                 },
                 'race-grid' => {
                     parser => \&provisional_starting_grid,
@@ -1148,26 +1311,32 @@ sub get_pdf_table
                 'race-history' => {
                     parser => \&race_history_chart,
                     table  => 'race_history',
+                    source => 'Race History Chart',
                 },
                 'race-laps' => {
                     parser => \&race_fastest_laps,
                     table  => 'race_fastest_lap',
+                    source => 'Race Fastest Laps',
                 },
                 'race-sectors' => {
                     parser => \&best_sector_times,
                     table  => 'race_best_sector_time',
+                    source => 'Race Best Sector Times',
                 },
                 'race-speeds' => {
                     parser => \&maximum_speeds,
                     table  => 'race_maximum_speed',
+                    source => 'Race Maximum Speeds',
                 },
                 'race-summary' => {
                     parser => \&race_pit_stop_summary,
                     table  => 'race_pit_stop_summary',
+                    source => 'Race Pit Stop Summary',
                 },
                 'race-trap' => {
                     parser => \&speed_trap,
                     table  => 'race_speed_trap',
+                    source => 'Race Speed Trap',
                 },
 
                 'race-classification' => {
