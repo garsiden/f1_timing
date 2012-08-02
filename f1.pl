@@ -3,6 +3,7 @@
 use DBI;
 use LWP::Simple;
 use HTML::LinkExtor;
+use HTML::TokeParser;
 use Term::ReadKey;
 use Getopt::Long;
 use Pod::Usage;
@@ -20,21 +21,19 @@ use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
 use constant EXPORT_OPT  => '-csv -header';
 use constant TIMING_BASE => 'http://184.106.145.74/fia-f1/';
-use constant TIMING_PAGE => 'timing.aspx';
 
-# http://184.106.145.74/fia-f1/f1-2012/f1-2012-08/eur-f1-2012-fp1-times.pdf
+# http://184.106.145.74/fia-f1/f1-2012/hun-f1-2012-docs.htm
 # database constants
-
 use constant DB_PATH => "$ENV{HOME}/Documents/F1/" . SEASON
   . '/db/f1_timing.db';
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
-# previous FIA web address
+# previous FIA web addresses
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 #  'http://www.fia.com/en-GB/mediacentre/f1_media/Pages/';
 
-use constant VERSION => '20110802';
+use constant VERSION => '20120802';
 
 # command line option variables
 my $timing      = undef;
@@ -88,7 +87,7 @@ use subs qw ( get_docs_dir get_db_source get_timing db_connect
   show_import_values);
 
 # use closures for globals
-my $pdf_table    = get_pdf_table();
+my $doc_table    = get_doc_table();
 my $doc_sessions = get_doc_sessions();
 my $export_map   = get_export_map();
 
@@ -102,17 +101,19 @@ unless ($export_opts) { $export_opts = EXPORT_OPT }
 
 if    ($help)               { pod2usage(2) }
 elsif ($man)                { pod2usage( -verbose => 2 ) }
-elsif ( defined $timing )   { get_timing }
+elsif ( defined $timing )   { get_timing() }
 elsif ( defined $import )   { db_import($import) }
 elsif ( defined $calendar ) { show_calendar($calendar) }
 elsif ( defined $export ) { export( $export, $race_id ) }
 elsif ($version) { print "$0 v@{[VERSION]}\n" }
 
-sub get_timing
+sub get_timing_2
 {
+
+    # uses pre-determined filenames on FIA server
     my $check_exists = 1;
-    my $pdf_tab      = $pdf_table->();
-    my ( $race, $get_docs );
+    my $doc_tab      = $doc_table->();
+    my ( $race, $docs );
 
     # check for timing arguments e.g., p1, fri, q
     if ( length $timing ) {
@@ -120,10 +121,10 @@ sub get_timing
         my $sess      = lc $timing;
         defined( my $re = $sess_href->{$sess}{re} )
           or die "$timing timing option not recognized\n";
-        $get_docs = [ grep { /$re/ } keys %$pdf_tab ];
+        $docs = [ grep { /$re/ } keys %$doc_tab ];
     }
     else {
-        $get_docs = $pdf_tab;
+        $docs = $doc_tab;
     }
 
     # ensure 'race' argument also provided, and what format used
@@ -153,9 +154,6 @@ sub get_timing
           or die "Unable to find round for race id '$id' in season $season\n";
     }
 
-    print "$season\t$id\t$rd\n";
-    print Dumper $get_docs;
-
     my $docs_dir = get_docs_dir $season;
     my $race_dir = catdir( $docs_dir, $id );
 
@@ -167,12 +165,11 @@ sub get_timing
 
     my $base_src = TIMING_BASE . "f1-$season/f1-$season-$rd/";
 
-    foreach (@$get_docs) {
-        my $pdf = $$pdf_tab{$_}{source} . '.pdf';
-        my $src = $base_src . $pdf;
+    foreach (@$docs) {
+        my $doc  = $$doc_tab{$_}{source} . '.pdf';
+        my $src  = $base_src . $doc;
         my $dest = catfile( $race_dir, $_ . '.pdf' );
-        print $src, "\n";
-        print $dest, "\n";
+
         if ( $check_exists and -f $dest ) {
             print "File $dest already exists.\n";
             print "Overwrite? ([y]es/[n]o/[a]ll/[c]ancel)";
@@ -196,49 +193,70 @@ sub get_timing
         }
 
         if ( ( my $rc = getstore( $src, $dest ) ) == RC_OK ) {
-            print "Downloaded $pdf.\n" unless $quiet;
+            print "Downloaded $doc.\n" unless $quiet;
         }
         else {
-            warn "Error downloading $pdf. (Error code: $rc)\n";
+            warn "Error downloading $doc. (Error code: $rc)\n";
         }
     }
 
     return;
-
 }
 
 # download timing PDFs from FIA web site
-sub get_timing_2
+# looks for links to PDFs on FIA's race specific page
+sub get_timing
 {
     my $check_exists = 1;
-    my ( $race, $get_docs );
+    my ( $race, $docs );
 
-    # get list of latest pdfs
-    my $docs = get_doc_links( TIMING_BASE, TIMING_PAGE );
+    # ensure 'race' argument also provided, and what format used
+    $race_id
+      or die "Race id argument required\n";
 
-    scalar @$docs > 0
-      or die "No timing data currently available.\n";
+    my ( $season, $id, $rd );
 
-    # get race prefix of first PDF
-    my $file = ( splitpath( $$docs[0] ) )[2];
-    ($race) = $file =~ /^([a-z]{3})-[a-z123-]+\.pdf$/
-      or die "Unable to get race id from $$docs[0].\n";
+    for ($race_id) {
+        ( $season, $id ) = /^(\d\d\d\d)-([A-z]{3})$/ and last;
+        ( $season, $rd ) = /^(\d\d\d\d)-(\d{1,2}$)/  and last;
+        ($id) = /^([A-z]{3})$/ and last;
+        ($rd) = /^(\d{1,2})$/  and last;
+        die "Race id '$race_id' format not recognized.\n";
+    }
 
+    # season, race id and round all required
+    $season = SEASON unless $season;
+
+    if ($rd) {
+        $rd = sprintf( "%02d", $rd );
+        $id = get_race_id( $season, $rd )
+          or die "Unable to get race id for round $rd in season $season\n";
+    }
+    else {
+        $rd = get_race_rd( $season, $id )
+          or die "Unable to find round for race id '$id' in season $season\n";
+    }
+
+    my $docs_dir    = get_docs_dir $season;
+    my $race_dir    = catdir( $docs_dir, $id );
+    my $timing_dir  = TIMING_BASE . "f1-$season/f1-$season-$rd/";
+    my $timing_page = TIMING_BASE . "f1-$season/$id-f1-$season-docs.htm";
+    my $doc_links   = get_doc_links($timing_page);
+
+    # check for timing arguments e.g., p1, fri, q
     if ( length $timing ) {
         my $sess_href = $doc_sessions->();
         my $sess      = lc $timing;
         defined( my $re = $sess_href->{$sess}{re} )
           or die "$timing timing option not recognized\n";
-        $get_docs = [ grep { /$re/ } @$docs ];
-        scalar @$get_docs > 0
-          or die "No timing data currently available.\n";
+        $docs = [ grep { $_->{dest} =~ /$re/ } @$doc_links ];
     }
     else {
-        $get_docs = $docs;
+        $docs = $doc_links;
     }
 
-    my $src_dir = get_docs_dir;
-    my $race_dir = catdir( $src_dir, $race );
+    scalar @$docs > 0
+      or die "No timing data currently available.\n";
 
     unless ( -d $race_dir ) {
         mkdir $race_dir
@@ -246,9 +264,10 @@ sub get_timing_2
         $check_exists = 0;
     }
 
-    foreach (@$get_docs) {
-        next unless ( my $pdf ) = /([a-z123-]+\.pdf$)/;
-        my $dest = catfile( $race_dir, $pdf );
+    for my $doc (@$docs) {
+        my $doc_name = $doc->{source};
+        my $dest     = catfile( $race_dir, "$id-$doc->{dest}.pdf" );
+        my $src      = $timing_dir . $doc_name;
 
         if ( $check_exists and -f $dest ) {
             print "File $dest already exists.\n";
@@ -271,12 +290,11 @@ sub get_timing_2
             elsif ( $answer eq 'n' ) { next; }
             elsif ( $answer eq 'a' ) { $check_exists = 0; }
         }
-        my $src = TIMING_BASE . $_;
         if ( ( my $rc = getstore( $src, $dest ) ) == RC_OK ) {
-            print "Downloaded $pdf.\n" unless $quiet;
+            print "Downloaded $doc_name.\n" unless $quiet;
         }
         else {
-            warn "Error downloading $pdf. (Error code: $rc)\n";
+            warn "Error downloading $doc_name. (Error code: $rc)\n";
         }
     }
 
@@ -287,10 +305,16 @@ sub get_docs_dir
 {
     my $season = shift;
     $season = $season ||= SEASON;
-    if ($docs_dir) { return $docs_dir }
-    elsif ( my $env = $ENV{F1_TIMING_DOCS_DIR} ) { return $env }
-    else { return DOCS_DIR . $season . '/' }
 
+    if ($docs_dir) {
+        return $docs_dir;
+    }
+    elsif ( my $env = $ENV{F1_TIMING_DOCS_DIR} ) {
+        return $env;
+    }
+    else {
+        return DOCS_DIR . $season . '/';
+    }
 }
 
 sub get_doc_sessions
@@ -350,33 +374,43 @@ sub db_import
         return;
     }
 
-    my ( $race, $session, $timesheet, $pdf_href );
-    my $pdf_tab   = $pdf_table->();
-    my $sess_href = $doc_sessions->();
+    my ( $race, $session, $timesheet, $doc_href );
+    my $doc_tab_base = $doc_table->();
+    my $sess_href    = $doc_sessions->();
+    my $doc_tab      = {};
+
+    # create new hash with old filenames as keys
+    foreach ( keys %$doc_tab_base ) {
+        my $item = $doc_tab_base->{$_};
+        $doc_tab->{ $item->{dest} } =
+          { map { $_ => $item->{$_} } grep !/dest/, keys %$item };
+    }
 
     if ( ($race) = $arg =~ /^([a-z]{3})$/ ) {
-        $pdf_href = $pdf_tab;
+        $doc_href = $doc_tab;
     }
     elsif ( ( ( $race, $session ) = $arg =~ /^([a-z]{3})-([a-z1-3]{1,3})$/ )
         and exists $sess_href->{$session} )
     {
         my $re = $sess_href->{$session}{re};
-        $pdf_href = { map { $_ => $$pdf_tab{$_} } grep /$re/, keys %$pdf_tab };
+        $doc_href = { map { $_ => $$doc_tab{$_} } grep /$re/, keys %$doc_tab };
     }
     elsif ( ( ( $race, $timesheet ) = $arg =~ /^([a-z]{3})-(.+)$/ )
-        and exists $pdf_tab->{$timesheet} )
+        and exists $doc_tab->{$timesheet} )
     {
-        $pdf_href = { $timesheet => $pdf_tab->{$timesheet} };
+        $doc_href = { $timesheet => $doc_tab->{$timesheet} };
     }
     else {
         die "Import argument $arg not recognized.\n";
     }
 
     my $race_dir = catdir( get_docs_dir, $race );
-    my $year = 1900 + (localtime)[5];
+
+    # TODO parse year from filepath
+    my $year    = SEASON;          #1900 + (localtime)[5];
     my $race_id = "$race-$year";
 
-    for my $key ( keys %$pdf_href ) {
+    for my $key ( keys %$doc_href ) {
         my $src = catfile( $race_dir, "$race-$key.pdf" );
         -e $src or die "Error: file $src does not exist\n";
 
@@ -386,7 +420,7 @@ sub db_import
         open my $text, $pipe_cmd
           or die 'unable to open ' . CONVERTER . ": $!\n";
 
-        my $href = $pdf_href->{$key};
+        my $href = $doc_href->{$key};
         my ( $recs, $fk_recs ) = $href->{parser}($text);
 
         if ($fk_recs) {
@@ -961,6 +995,65 @@ sub db_insert_array
 
 sub get_doc_links
 {
+    my $url = shift;
+    my $content;
+
+    unless ( $content = get $url ) {
+        die "Unable to get $url\n";
+    }
+
+    my $parser = HTML::TokeParser->new( \$content );
+
+    my %doc_seen;
+    my @docs     = ();
+    my @patterns = (
+        '.+/.+/([A-Z]{3} Doc.*\.pdf)',
+        '.+/.+/(Race.*\.pdf)',
+        '.+/.+/((?:Preliminary )?Qualifying.*\.pdf)',
+        '.+/.+/(.*Practice.*\.pdf)',
+    );
+
+    my @regexes = map { qr/$_/ } @patterns;
+
+    # get unique list of required PDF links
+    while ( my $token = $parser->get_tag("a") ) {
+        next unless ( my $onclick = $token->[1]{onclick} );
+      RE:
+        for my $re (@regexes) {
+            next RE unless ( my $doc ) = $onclick =~ /$re/;
+            $doc_seen{$doc}++;
+            last RE;
+        }
+    }
+
+    # clean up PDF names
+    my %practice = qw(P1 First P2 Second P3 Third);
+
+    foreach ( keys %doc_seen ) {
+        my $k = $_;
+        if (s/^[A-Z]{3} Doc \d{1,2} //) {
+            s/^(P[1-3])/$practice{$1} Practice Session/;
+        }
+        $doc_seen{$k} = $_;
+    }
+
+    # add source to doc_table;
+    my $doc_tab = get_doc_table()->();
+
+    foreach ( keys %doc_seen ) {
+        my $doc = $doc_seen{$_};
+        $doc =~ s/\.pdf$//;
+        if ( $doc_tab->{$doc} ) {
+            $doc_tab->{$doc}{source} = $_;
+            push @docs, $doc_tab->{$doc};
+        }
+    }
+
+    return \@docs;
+}
+
+sub get_doc_links_2
+{
     my ( $base, $page ) = @_;
     my $url = $base . $page;
     my $content;
@@ -1111,10 +1204,10 @@ sub show_import_values
 {
 
     # filter/sort individual PDFs
-    my $pdf_tab = $pdf_table->();
+    my $doc_tab = $doc_table->();
     my ( @p, @q, @r );
 
-    foreach ( sort keys %$pdf_tab ) {
+    foreach ( sort keys %$doc_tab ) {
         if    (/^s/) { push @p, $_ }
         elsif (/^q/) { push @q, $_ }
         elsif (/^r/) { push @r, $_ }
@@ -1226,13 +1319,141 @@ sub get_export_map
       }
 }
 
-sub get_pdf_table
+sub get_doc_table
 {
-    my $pdf_href;
+    my $doc_href;
 
     return sub {
-        unless ($pdf_href) {
-            $pdf_href = {
+        unless ($doc_href) {
+            $doc_href = {
+
+                # Practice
+                'First Practice Session Classification' => {
+                    parser => \&practice_session_classification,
+                    table  => 'practice_1_classification',
+                    dest   => 'session1-classification',
+                },
+                'First Practice Session Lap Times' => {
+                    parser   => \&time_sheet,
+                    table    => 'practice_1_lap_time',
+                    fk_table => 'practice_1_driver',
+                    dest     => 'session1-times',
+                },
+                'Second Practice Session Classification' => {
+                    parser => \&practice_session_classification,
+                    table  => 'practice_2_classification',
+                    dest   => 'session2-classification',
+                },
+                'Second Practice Session Lap Times' => {
+                    parser   => \&time_sheet,
+                    table    => 'practice_2_lap_time',
+                    fk_table => 'practice_2_driver',
+                    dest     => 'session2-times',
+                },
+                'Third Practice Session Classification' => {
+                    parser => \&practice_session_classification,
+                    table  => 'practice_3_classification',
+                    dest   => 'session3-classification',
+                },
+                'Third Practice Session Lap Times' => {
+                    parser   => \&time_sheet,
+                    table    => 'practice_3_lap_time',
+                    fk_table => 'practice_3_driver',
+                    dest     => 'session3-times',
+                },
+
+                # Qualifying
+                'Qualifying Session Best Sector Times' => {
+                    parser => \&best_sector_times,
+                    table  => 'qualifying_best_sector_time',
+                    dest   => 'qualifying-sectors',
+                },
+                'Qualifying Session Maximum Speeds' => {
+                    parser => \&maximum_speeds,
+                    table  => 'qualifying_maximum_speed',
+                    dest   => 'qualifying-speeds',
+                },
+                'Qualifying Session Lap Times' => {
+                    parser   => \&time_sheet,
+                    table    => 'qualifying_lap_time',
+                    fk_table => 'qualifying_driver',
+                    dest     => 'qualifying-times',
+                },
+                'Qualifying Session Speed Trap' => {
+                    parser => \&speed_trap,
+                    table  => 'qualifying_speed_trap',
+                    dest   => 'qualifying-trap',
+                },
+                'Preliminary Qualifying Classification' => {
+                    parser => \&qualifying_classification,
+                    table  => 'qualifying_classification',
+                    dest   => 'qualifying-classification',
+                },
+
+                # Race
+                'Race Lap Analysis' => {
+                    parser   => \&time_sheet,
+                    table    => 'race_lap_analysis',
+                    fk_table => 'race_driver',
+                    dest     => 'race-analysis',
+                },
+                'Provisional Starting Grid' => {
+                    parser => \&provisional_starting_grid,
+                    table  => 'race_grid',
+                    dest   => 'race-grid',
+                },
+                'Race History Chart' => {
+                    parser => \&race_history_chart,
+                    table  => 'race_history',
+                    dest   => 'race-history',
+                },
+                'Race Fastest Laps' => {
+                    parser => \&race_fastest_laps,
+                    table  => 'race_fastest_lap',
+                    dest   => 'race-laps',
+                },
+                'Race Best Sector Times' => {
+                    parser => \&best_sector_times,
+                    table  => 'race_best_sector_time',
+                    dest   => 'race-sectors',
+                },
+                'Race Maximum Speeds' => {
+                    parser => \&maximum_speeds,
+                    table  => 'race_maximum_speed',
+                    dest   => 'race-speeds',
+                },
+                'Race Pit Stop Summary' => {
+                    parser => \&race_pit_stop_summary,
+                    table  => 'race_pit_stop_summary',
+                    dest   => 'race-summary',
+                },
+                'Race Speed Trap' => {
+                    parser => \&speed_trap,
+                    table  => 'race_speed_trap',
+                    dest   => 'race-trap',
+                },
+
+                'Race-Preliminary-Classification' => {
+                    parser => \&race_classification,
+                    table  => 'race_classification',
+                    dest   => 'race-classification',
+                },
+
+                # TODO
+                # 'race-chart'
+            };
+        }
+        return $doc_href;
+      }
+}
+
+sub get_doc_table_2
+{
+    my $doc_href;
+
+    return sub {
+        unless ($doc_href) {
+            $doc_href = {
 
                 # Practice
                 'session1-classification' => {
@@ -1348,7 +1569,7 @@ sub get_pdf_table
                 # 'race-chart'
             };
         }
-        return $pdf_href;
+        return $doc_href;
       }
 }
 
