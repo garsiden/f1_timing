@@ -2,6 +2,7 @@
 
 use DBI;
 use LWP::Simple;
+use LWP::UserAgent;
 use HTML::LinkExtor;
 use HTML::TokeParser;
 use Term::ReadKey;
@@ -14,15 +15,18 @@ use strict;
 use warnings;
 
 # config constants
-use constant SEASON      => '2012';
+use constant SEASON      => '2013';
 use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
 use constant EXPORT_OPT  => '-csv -header';
-use constant TIMING_BASE => 'http://184.106.145.74/fia-f1/';
+use constant TIMING_BASE => 'http://184.106.145.74/f1-championship/';
+use constant FIA_BASE    => 'http://www.fia.com/championship/fia-formula-1-world-championship/';
+use constant FIA_SUFFIX  => 'grand-prix-event-information';
+use constant USER_AGENT  => 'Mozilla/5.0 (Macintosh; U; PPC Mac OS X 10.4; en-US; rv:1.9.2.10) '
+  . 'Gecko/20100914 Firefox/3.6.10';
 
-# http://184.106.145.74/fia-f1/f1-2012/hun-f1-2012-docs.htm
 # database constants
 use constant DB_PATH => "$ENV{HOME}/Documents/F1/" . SEASON
   . '/db/f1_timing.db';
@@ -32,6 +36,8 @@ use constant DB_USER => q{};
 # previous FIA web addresses
 #  'http://fialive.fiacommunications.com/en-GB/mediacentre/f1_media/Pages/';
 #  'http://www.fia.com/en-GB/mediacentre/f1_media/Pages/';
+#  'http://184.106.145.74/fia-f1/';
+#   http://184.106.145.74/fia-f1/f1-2012/hun-f1-2012-docs.htm
 
 use constant VERSION => '20120802';
 
@@ -69,7 +75,7 @@ GetOptions(
     'help'          => \$help,
     'man'           => \$man,
     'version'       => \$version,
-) or pod2usage(2);
+) or pod2usage( );
 
 # shared regexs
 my $driver_re  = q<[A-Z]\. [A-Z '-]+?>;
@@ -146,7 +152,7 @@ sub get_timing
     my $docs_dir    = get_docs_dir $season;
     my $race_dir    = catdir( $docs_dir, $id );
     my $timing_dir  = TIMING_BASE . "f1-$season/f1-$season-$rd/";
-    my $timing_page = TIMING_BASE . "f1-$season/$page-f1-$season-docs.htm";
+    my $timing_page = lc FIA_BASE . "$season/$season-$page-" . FIA_SUFFIX;
     my $doc_links   = get_doc_links($timing_page);
 
     # check for timing arguments e.g., p1, fri, q
@@ -460,16 +466,16 @@ sub provisional_starting_grid
 {
     my $text = shift;
 
-    my $left_re = qr/
+    my $left_re = qr!
         ($pos_re)\ +
         ($no_re)\ +
-        ($driver_re)\**     # one or more asterisks indicate allowed to race
+        ($driver_re)[/ *]*   # one or more asterisks indicate allowed to race
                             # although outside 107% of Q1 lap time.
         (?:\ {2,}|\n)       # two space gap to indicate end of name or new line
         ($time_re)?         # possibly no time set
-    /x;
+    !x;
 
-    my $right_re     = qr/($no_re) +($driver_re)\** +($time_re)? +($pos_re)/;
+    my $right_re     = qr!($no_re) +($driver_re)[/ *]* +($time_re)? +($pos_re)!;
     my $entrant_line = qr/^ +($entrant_re)/;
     my ( $pos, $no, $driver, $time, $entrant, @recs );
 
@@ -902,12 +908,17 @@ sub db_insert_array
 sub get_doc_links
 {
     my $url = shift;
+
+    my $ua = LWP::UserAgent->new(agent => USER_AGENT);
+
+    my $response = $ua->get($url);
     my $content;
-
-    unless ( $content = get $url ) {
-        die "Unable to get $url\n";
+    if ( $response->is_success ) {
+        $content = $response->decoded_content;    # or whatever
     }
-
+    else {
+        die $response->status_line;
+    }
     my $parser = HTML::TokeParser->new( \$content );
 
     my %doc_seen;
@@ -917,6 +928,7 @@ sub get_doc_links
         '.+/.+/(Race.*\.pdf)',
         '.+/.+/((?:Preliminary )?Qualifying.*\.pdf)',
         '.+/.+/(.*Practice.*\.pdf)',
+        '.+/.+/(.*Provisional.*\.pdf)',
     );
 
     my @regexes = map { qr/$_/ } @patterns;
@@ -980,7 +992,7 @@ sub get_race_id
     my ( $season, $rd ) = @_;
     my $id;
     my $sql = <<'SQL';
-SELECT rnd, id, page
+SELECT rd, id, page
 FROM race_id
 WHERE season=? AND rd=?
 SQL
@@ -993,7 +1005,7 @@ sub get_race_rd
     my ( $season, $id ) = @_;
     my $rd;
     my $sql = <<'SQL';
-SELECT rnd, id, page
+SELECT rd, id, page
 FROM race_id
 WHERE season=? AND id=?
 SQL
@@ -1264,7 +1276,7 @@ sub get_doc_table
                     table  => 'qualifying_speed_trap',
                     dest   => 'qualifying-trap',
                 },
-                'Preliminary Qualifying Classification' => {
+                'Qualifying Session Preliminary Classification' => {
                     parser => \&qualifying_classification,
                     table  => 'qualifying_classification',
                     dest   => 'qualifying-classification',
@@ -1313,7 +1325,7 @@ sub get_doc_table
                     dest   => 'race-trap',
                 },
 
-                'Race-Preliminary-Classification' => {
+                'Race Preliminary Classification' => {
                     parser => \&race_classification,
                     table  => 'race_classification',
                     dest   => 'race-classification',
