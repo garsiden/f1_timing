@@ -22,9 +22,11 @@ use constant CONVERT_OPT => '-layout';
 use constant EXPORTER    => 'sqlite3';
 use constant EXPORT_OPT  => '-csv -header';
 use constant TIMING_BASE => 'http://184.106.145.74/f1-championship/';
-use constant FIA_BASE    => 'http://www.fia.com/championship/fia-formula-1-world-championship/';
-use constant FIA_SUFFIX  => 'grand-prix-event-information';
-use constant USER_AGENT  => 'Mozilla/5.0 (Macintosh; U; PPC Mac OS X 10.4; en-US; rv:1.9.2.10) '
+use constant FIA_BASE =>
+  'http://www.fia.com/championship/fia-formula-1-world-championship/';
+use constant FIA_SUFFIX => 'grand-prix-event-information';
+use constant USER_AGENT =>
+  'Mozilla/5.0 (Macintosh; U; PPC Mac OS X 10.4; en-US; rv:1.9.2.10) '
   . 'Gecko/20100914 Firefox/3.6.10';
 
 # database constants
@@ -75,7 +77,7 @@ GetOptions(
     'help'          => \$help,
     'man'           => \$man,
     'version'       => \$version,
-) or pod2usage( );
+) or pod2usage();
 
 # shared regexs
 my $driver_re  = q<[A-Z]\. [A-Z '-]+?>;
@@ -140,19 +142,19 @@ sub get_timing
 
     if ($rd) {
         $rd = sprintf( "%02d", $rd );
-        $id = ${$race_tab = get_race_id( $season, $rd )}{id}
+        $id = ${ $race_tab = get_race_id( $season, $rd ) }{id}
           or die "Unable to get race id for round $rd in season $season\n";
     }
     else {
-        $rd = ${$race_tab = get_race_rd( $season, $id )}{rd}
+        $rd = ${ $race_tab = get_race_rd( $season, $id ) }{rd}
           or die "Unable to find round for race id '$id' in season $season\n";
     }
 
-    my $page        = $race_tab->{page};
+    my $page        = lc $race_tab->{page};
     my $docs_dir    = get_docs_dir $season;
     my $race_dir    = catdir( $docs_dir, $id );
     my $timing_dir  = TIMING_BASE . "f1-$season/f1-$season-$rd/";
-    my $timing_page = lc FIA_BASE . "$season/$season-$page-" . FIA_SUFFIX;
+    my $timing_page = FIA_BASE . "$season/$season-$page-" . FIA_SUFFIX;
     my $doc_links   = get_doc_links($timing_page);
 
     # check for timing arguments e.g., p1, fri, q
@@ -323,6 +325,8 @@ sub db_import
     my $race_id = "$race-$year";
 
     for my $key ( keys %$doc_href ) {
+        my $href = $doc_href->{$key};
+        next unless exists $href->{parser};
         my $src = catfile( $race_dir, "$race-$key.pdf" );
         -e $src or die "Error: file $src does not exist\n";
 
@@ -332,7 +336,6 @@ sub db_import
         open my $text, $pipe_cmd
           or die 'unable to open ' . CONVERTER . ": $!\n";
 
-        my $href = $doc_href->{$key};
         my ( $recs, $fk_recs ) = $href->{parser}($text);
 
         if ($fk_recs) {
@@ -909,7 +912,7 @@ sub get_doc_links
 {
     my $url = shift;
 
-    my $ua = LWP::UserAgent->new(agent => USER_AGENT);
+    my $ua = LWP::UserAgent->new( agent => USER_AGENT );
 
     my $response = $ua->get($url);
     my $content;
@@ -951,8 +954,10 @@ sub get_doc_links
         my $k = $_;
         if (s/^[A-Z]{3} Doc \d{1,2} //) {
             s/^(P[1-3])/$practice{$1} Practice Session/;
+            s/(Qualifying) ([^Ses]{3})/$1 Session $2/;
+            s/^(Preliminary) (Qualifying Session|Race) (Classification.pdf)/$2 $1 $3/;
         }
-        $doc_seen{$k} = $_;
+            $doc_seen{$k} = $_;
     }
 
     # add source to doc_table;
@@ -1332,6 +1337,9 @@ sub get_doc_table
                 },
 
                 # TODO
+                'Race Lap Chart' => {
+                    dest => 'race-lap-chart',
+                },
                 # 'race-chart'
             };
         }
