@@ -41,7 +41,7 @@ use constant DB_USER => q{};
 #  'http://184.106.145.74/fia-f1/';
 #   http://184.106.145.74/fia-f1/f1-2012/hun-f1-2012-docs.htm
 
-use constant VERSION => '20120802';
+use constant VERSION => '20130417';
 
 # command line option variables
 my $timing      = undef;
@@ -123,21 +123,24 @@ sub get_timing
     my ( $race, $docs );
 
     # ensure 'race' argument also provided, and what format used
-    $race_id
-      or die "Race id argument required\n";
+    # $race_id
+    #   or die "Race id argument required\n";
 
     my ( $season, $id, $rd );
 
-    for ($race_id) {
-        ( $season, $id ) = /^(\d\d\d\d)-([A-z]{3})$/ and last;
-        ( $season, $rd ) = /^(\d\d\d\d)-(\d{1,2}$)/  and last;
-        ($id) = /^([A-z]{3})$/ and last;
-        ($rd) = /^(\d{1,2})$/  and last;
-        die "Race id '$race_id' format not recognized.\n";
+    if ($race_id) {
+        for ($race_id) {
+            ( $id, $season) = /^([A-z]{3})-(\d\d\d\d)$/ and last;
+            ( $rd, $season ) =/(\d{1,2})-(\d\d\d\d)$/  and last;
+            ($id) = /^([A-z]{3})$/ and last;
+            ($rd) = /^(\d{1,2})$/  and last;
+            die "Race id '$race_id' format not recognized.\n";
+        }
+    } else {
+        ($id, $rd) = get_current_race();
     }
-
     # season, race id and round all required
-    $season = SEASON unless $season;
+    $season ||= SEASON;
     my $race_tab;
 
     if ($rd) {
@@ -272,7 +275,7 @@ sub get_doc_sessions
                 },
             );
             $hash{thu} = $hash{fri};
-            $hash{sun} = $hash{r};
+            $hash{race} = $hash{sun} = $hash{r};
         }
 
         return \%hash;
@@ -955,9 +958,9 @@ sub get_doc_links
         if (s/^[A-Z]{3} Doc \d{1,2} //) {
             s/^(P[1-3])/$practice{$1} Practice Session/;
             s/(Qualifying) ([^Ses]{3})/$1 Session $2/;
-            s/^(Preliminary) (Qualifying Session|Race) (Classification.pdf)/$2 $1 $3/;
+s/^(Preliminary) (Qualifying Session|Race) (Classification.pdf)/$2 $1 $3/;
         }
-            $doc_seen{$k} = $_;
+        $doc_seen{$k} = $_;
     }
 
     # add source to doc_table;
@@ -975,6 +978,23 @@ sub get_doc_links
     return \@docs;
 }
 
+sub get_current_race
+{
+    my ( $sql, $href);
+
+    $sql = 'SELECT rd, id FROM current_race';
+    my $dbh = $db_session->();
+    my $sth = $dbh->prepare($sql);
+    $sth->execute;
+    unless ( $href = $sth->fetchrow_hashref ) {
+        if ( $sth->err ) {
+            warn "Database error: $sth->errstr\n";
+        }
+    }
+
+    return $href->{id}, $href->{rd}; 
+}
+
 sub get_race
 {
     my ( $sql, $p1, $p2 ) = @_;
@@ -986,6 +1006,8 @@ sub get_race
     unless ( $href = $sth->fetchrow_hashref ) {
         if ( $sth->err ) {
             warn "Database error: $sth->errstr\n";
+        } else {
+            $href = {};
         }
     }
 
@@ -1015,7 +1037,10 @@ FROM race_id
 WHERE season=? AND id=?
 SQL
 
-    return get_race( $sql, $season, $id );
+    my $href =get_race( $sql, $season, $id ); 
+    print Dumper $href;
+
+    return $href;
 }
 
 sub show_calendar
@@ -1104,7 +1129,7 @@ sub show_import_values
     my $doc_tab = $doc_table->();
     my ( @p, @q, @r );
 
-    foreach ( sort keys %$doc_tab ) {
+    foreach ( map $doc_tab->{$_}{dest}, sort keys %$doc_tab ) {
         if    (/^s/) { push @p, $_ }
         elsif (/^q/) { push @q, $_ }
         elsif (/^r/) { push @r, $_ }
@@ -1122,8 +1147,8 @@ Import option values:
 .
 
     format IMPORT =
-        @<<<<<<<<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-        $col1,                       $col2
+@<<<<<<<<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+$col1,                       $col2
 .
 
     local $^ = 'IMPORT_TOP';
@@ -1337,9 +1362,8 @@ sub get_doc_table
                 },
 
                 # TODO
-                'Race Lap Chart' => {
-                    dest => 'race-lap-chart',
-                },
+                'Race Lap Chart' => { dest => 'race-lap-chart', },
+
                 # 'race-chart'
             };
         }
