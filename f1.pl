@@ -41,7 +41,7 @@ use constant DB_USER => q{};
 #  'http://184.106.145.74/fia-f1/';
 #   http://184.106.145.74/fia-f1/f1-2012/hun-f1-2012-docs.htm
 
-use constant VERSION => '20130417';
+use constant VERSION => '20130430';
 
 # command line option variables
 my $timing      = undef;
@@ -130,10 +130,10 @@ sub get_timing
         for ( lc $timing ) {
             ( $id, $sess )      = /^([a-z]{3})-([pqr]\d?)$/  and last;
             ( $id, $timesheet ) = /^([a-z]{3})-(\w+-\w+.*)$/ and last;
-            ($sess)      = /^(thu|fri|sat|sun)$/ and last;
-            ($sess)      = /^([pqr]\d?)$/        and last;
-            ($id)        = /^([a-z]{3})$/        and last;
-            ($timesheet) = /^(\w+-\w+.*)$/       and last;
+            ($sess)      = /^(thu|fri|sat|sun|race)$/ and last;
+            ($sess)      = /^([pqr]\d?)$/             and last;
+            ($id)        = /^([a-z]{3})$/             and last;
+            ($timesheet) = /^(\w+-\w+.*)$/            and last;
             die "Timing argument '$timing' format not recognized.\n";
         }
     }
@@ -156,8 +156,7 @@ sub get_timing
     my $timing_dir  = TIMING_BASE . "f1-$season/f1-$season-$race_tab->{rd}/";
     my $timing_page = FIA_BASE . "$season/$season-$page-" . FIA_SUFFIX;
     my $doc_links   = get_doc_links($timing_page);
-    my $sess_href   = $doc_sessions->();
-    my $docs        = ();
+    my @docs;
 
     # check for timing arguments e.g., p1, fri, q
     if ($sess) {
@@ -165,22 +164,23 @@ sub get_timing
         defined( my $re = $sess_href->{$sess}{re} )
           or die "Session $timing timing option not recognized\n";
         while ( my ( $k, $v ) = each %$doc_links ) {
-            push @$docs, $k if ( $k =~ /$re/o and exists $v->{source} );
+            push @docs, $k if ( $k =~ /$re/o and exists $v->{source} );
         }
     }
     elsif ($timesheet) {
+
         # check if document name argument is correct
         exists $doc_links->{$timesheet}
-            or die "Timesheet '$timesheet' not recognized\n";
-        $docs = [$timesheet] if $doc_links->{$timesheet}; 
+          or die "Timesheet '$timesheet' not recognized\n";
+        push @docs, $timesheet if exists $doc_links->{$timesheet};
     }
     else {
         while ( my ( $k, $v ) = each %$doc_links ) {
-            push @$docs, $k if exists $v->{source};
+            push @docs, $k if exists $v->{source};
         }
     }
 
-    scalar @$docs > 0
+    scalar @docs > 0
       or die "No timing data currently available.\n";
 
     unless ( -d $race_dir ) {
@@ -189,7 +189,7 @@ sub get_timing
         $check_exists = 0;
     }
 
-    foreach (@$docs) {
+    foreach (@docs) {
         my $doc      = $doc_links->{$_};
         my $doc_name = $doc->{source};
         my $dest     = catfile( $race_dir, "$race_tab->{id}-$_.pdf" );
@@ -301,8 +301,8 @@ sub db_import
     }
 
     my ( $race, $session, $timesheet, $doc_href );
-    my $sess_href    = $doc_sessions->();
-    my $doc_tab      = $doc_table->();
+    my $sess_href = $doc_sessions->();
+    my $doc_tab   = $doc_table->();
 
     if ( ($race) = $arg =~ /^([a-z]{3})$/ ) {
         $doc_href = $doc_tab;
@@ -421,7 +421,7 @@ sub race_history_chart
     /x;
 
     my ( @col_pos, $width, $prev_col, $len, $idx, $line, @recs, @drivers );
-    my @fields = qw(lap no  pit time);
+    my @fields = qw(lap no pit time);
 
   HEADER:
     while (<$text>) {
@@ -821,6 +821,22 @@ sub best_sector_times
     return \@recs;
 }
 
+sub race_lap_chart
+{
+    my $text = shift;
+
+    my @laps;
+
+    while (<$text>) {
+        if (s/LAP (\d{1,2})//) {
+            my $pos;
+            push @laps, map { { 'lap', $1, 'no', $_, 'pos', ++$pos } } split;
+        }
+    }
+
+    return \@laps;
+}
+
 # DATABASE
 sub get_db_source
 {
@@ -960,6 +976,7 @@ sub get_doc_links
             s/^(P[1-3])/$practice{$1} Practice Session/;
             s/(Qualifying) ([^Ses]{3})/$1 Session $2/;
 s/^(Preliminary) (Qualifying Session|Race) (Classification.pdf)/$2 $1 $3/;
+            s/ v\d(\.pdf)$/$1/;    # for 'v 2' documents
         }
         $doc_seen{$k} = $_;
     }
@@ -973,12 +990,12 @@ s/^(Preliminary) (Qualifying Session|Race) (Classification.pdf)/$2 $1 $3/;
         $link_names{ $doc_tab->{$_}{link_name} } = $_;
     }
 
-    foreach (keys %doc_seen) {
+    foreach ( keys %doc_seen ) {
         ( my $doc = $doc_seen{$_} ) =~ s/\.pdf$//;
-       if ( my $k = $link_names{$doc} ) { 
-           $doc_tab->{$k}{source} = $_;
-       }
-   }
+        if ( my $k = $link_names{$doc} ) {
+            $doc_tab->{$k}{source} = $_;
+        }
+    }
 
     return $doc_tab;
 }
@@ -1367,10 +1384,11 @@ sub get_doc_table
                     table     => 'race_classification',
                 },
 
-                # TODO
-                'race-lap-chart' => { link_name => 'Race Lap Chart', }
-
-                  # 'race-chart'
+                'race-lap-chart' => {
+                    link_name => 'Race Lap Chart',
+                    parser    => \&race_lap_chart,
+                    table     => 'race_lap_chart',
+                }
             };
         }
         return $doc_href;
@@ -1450,6 +1468,8 @@ Recognized optional values are:
 =item --timing     - download all available timing PDFs
 
 =item -t r         - download all race timing PDFs
+
+=item -t race-laps - download named PDF file
 
 =back
 

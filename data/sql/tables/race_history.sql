@@ -18,3 +18,4 @@ CREATE TABLE race_history
 
 CREATE INDEX IF NOT EXISTS race_history_race_id_idx ON race_history(race_id);
 CREATE INDEX IF NOT EXISTS race_history_race_id_no_idx ON race_history(race_id, no);
+CREATE INDEX IF NOT EXISTS race_history_laps ON race_history(race_id, no, lap);
