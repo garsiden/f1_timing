@@ -61,13 +61,21 @@ TIMES
 
     # get lap times for one driver
     my $dbh = $db_session->();
-    my $ytimes =
-      $dbh->selectcol_arrayref( $times, { Columns => [2] }, ( $no, $id ) );
-    my $ztimes =
-      $dbh->selectcol_arrayref( $times, { Columns => [2] }, ( 1, $id ) );
-    my $vtimes =
-      $dbh->selectcol_arrayref( $times, { Columns => [2] }, ( 2, $id ) );
-    my $xlaps = [ 1 .. scalar @$ytimes ];
+    my @datasets;
+
+    foreach (1 .. 4, 10) {
+        my $times =
+        $dbh->selectcol_arrayref( $times, { Columns => [2] }, ($_ , $id ) );
+        my $ds = Chart::Gnuplot::DataSet->new(
+            xdata => [1 .. scalar @$times],
+            ydata => $times,
+            title => "Driver $_",
+            style => "lines",
+            color => $colours{$_},
+            linetype => $_ % 2 ? 'solid' : 'dash',
+        );
+        push @datasets, $ds;
+    }
 
     # Create chart object and specify the properties of the chart
     my $chart = Chart::Gnuplot->new(
@@ -84,7 +92,7 @@ TIMES
             ylines   => 'on',
         },
         yrange => '[] reverse',
-        xrange => [ 1, scalar @$xlaps ],
+        xrange => [ 1, $race->{laps}],
         legend => {
             position => 'outside',
             align => 'left',
@@ -93,34 +101,7 @@ TIMES
         key => 'font "Monaco, 10"',
     );
 
-    # Create dataset object and specify the properties of the dataset
-    my $dataSet = Chart::Gnuplot::DataSet->new(
-        xdata => $xlaps,
-        ydata => $ytimes,
-        title => "Driver $no",
-        style => "lines",
-        color => $colours{$no},
-    );
-    my $dataset1 = Chart::Gnuplot::DataSet->new(
-        xdata => $xlaps,
-        ydata => $ztimes,
-        title => "Driver 1",
-        style => "lines",
-        color => $colours{1},
-        linetype => 'solid',
-    );
-    say scalar @$vtimes;
-    my $dataset2 = Chart::Gnuplot::DataSet->new(
-        xdata => [1 .. scalar @$vtimes],
-        ydata => $vtimes,
-        title => "Driver 2",
-        style => "lines",
-        color => $colours{2},
-        linetype => 'dash',
-    );
-
-    # Plot the data set on the chart
-    $chart->plot2d(($dataSet, $dataset1, $dataset2));
+    $chart->plot2d(@datasets);
 }
 
 sub lap_times_demo
