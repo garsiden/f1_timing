@@ -63,6 +63,10 @@ TIMES
     my $dbh = $db_session->();
     my $ytimes =
       $dbh->selectcol_arrayref( $times, { Columns => [2] }, ( $no, $id ) );
+    my $ztimes =
+      $dbh->selectcol_arrayref( $times, { Columns => [2] }, ( 1, $id ) );
+    my $vtimes =
+      $dbh->selectcol_arrayref( $times, { Columns => [2] }, ( 2, $id ) );
     my $xlaps = [ 1 .. scalar @$ytimes ];
 
     # Create chart object and specify the properties of the chart
@@ -83,7 +87,7 @@ TIMES
         xrange => [ 1, scalar @$xlaps ],
         legend => {
             position => 'outside',
-            align => 'right',
+            align => 'left',
             title => 'Key',
         },
         key => 'font "Monaco, 10"',
@@ -97,9 +101,26 @@ TIMES
         style => "lines",
         color => $colours{$no},
     );
+    my $dataset1 = Chart::Gnuplot::DataSet->new(
+        xdata => $xlaps,
+        ydata => $ztimes,
+        title => "Driver 1",
+        style => "lines",
+        color => $colours{1},
+        linetype => 'solid',
+    );
+    say scalar @$vtimes;
+    my $dataset2 = Chart::Gnuplot::DataSet->new(
+        xdata => [1 .. scalar @$vtimes],
+        ydata => $vtimes,
+        title => "Driver 2",
+        style => "lines",
+        color => $colours{2},
+        linetype => 'dash',
+    );
 
     # Plot the data set on the chart
-    $chart->plot2d($dataSet);
+    $chart->plot2d(($dataSet, $dataset1, $dataset2));
 }
 
 sub lap_times_demo
