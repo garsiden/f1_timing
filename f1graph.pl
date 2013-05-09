@@ -3,6 +3,7 @@
 use DBI;
 use Data::Dumper;
 use Chart::Gnuplot;
+use POSIX qw(strftime);
 
 use strict;
 use warnings;
@@ -21,16 +22,29 @@ use constant DB_USER => q{};
 my $db_path = undef;
 
 # database session handle
-
 my $db_session = db_connect();
+
+my %colours = (
+    1,  "#020138", 2,  "#485184", 3,  "#B80606", 4,  "#B80606", 5,  "#B7BACC",
+    6,  "#D0D7DF", 7,  "#F8A62D", 8,  "#F9D61A", 9,  "#72A5A6", 10, "#A7C8C9",
+    11, "#646564", 12, "#989898", 14, "#B2C61B", 15, "#D6E741", 16, "#3F62A6",
+    17, "#6E94C0", 18, "#640F6F", 19, "#A36FAA", 20, "#076214", 21, "#7EAE7B",
+    22, "#ED528A", 23, "#F5AAC4",
+);
 
 #lap_times_demo();
 lap_times_db();
-
+# TODO
+# multi-plot
+# legend
+# car colours
+# title from database
 sub lap_times_db
 {
     my $no    = 10;
     my $id    = 'chn-2013';
+    my $font = 'Monaco, 12';
+    my $dashed = 'dashed';  # solid|dashed
     my $times = <<'TIMES';
 SELECT lap, secs
 FROM race_lap_sec
@@ -38,6 +52,14 @@ WHERE no=? AND race_id=?
 ORDER BY lap
 TIMES
 
+    # get race hash
+    my $race = get_race($id);
+    # titles for graph and terminal window
+    my $year = (localtime $race->{epoch})[5] + 1900;
+    my $title = "$race->{gp} Grand Prix $year \\nLap Times";
+    (my $term_title = $title) =~ s/\\n/ - /; 
+
+    # get lap times for one driver
     my $dbh = $db_session->();
     my $ytimes =
       $dbh->selectcol_arrayref( $times, { Columns => [2] }, ( $no, $id ) );
@@ -45,8 +67,8 @@ TIMES
 
     # Create chart object and specify the properties of the chart
     my $chart = Chart::Gnuplot->new(
-        terminal => 'aqua',
-        title    => "Lap Times ($id)",
+        terminal => qq!aqua title "$term_title" font "$font" $dashed!,
+        title    => $title, 
         ylabel   => "Time (secs)",
         xlabel   => "Lap",
         ytics    => {
@@ -59,6 +81,12 @@ TIMES
         },
         yrange => '[] reverse',
         xrange => [ 1, scalar @$xlaps ],
+        legend => {
+            position => 'outside',
+            align => 'right',
+            title => 'Key',
+        },
+        key => 'font "Monaco, 10"',
     );
 
     # Create dataset object and specify the properties of the dataset
@@ -67,6 +95,7 @@ TIMES
         ydata => $ytimes,
         title => "Driver $no",
         style => "lines",
+        color => $colours{$no},
     );
 
     # Plot the data set on the chart
@@ -147,3 +176,31 @@ sub connection_factory
         $dbh;
       }
 }
+
+sub get_race
+{
+    my $id = shift;
+
+    my $sql = <<'SQL';
+SELECT id, rd, date, gp, laps, strftime('%s',date) AS epoch
+FROM race
+WHERE id=?
+SQL
+
+    my $href;
+    my $dbh = $db_session->();
+    my $sth = $dbh->prepare($sql);
+    $sth->execute( $id );
+
+    unless ( $href = $sth->fetchrow_hashref ) {
+        if ( $sth->err ) {
+            warn "Database error: $sth->errstr\n";
+        }
+        else {
+            $href = {};
+        }
+    }
+
+    return $href;
+}
+    
