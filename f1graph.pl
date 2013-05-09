@@ -3,7 +3,7 @@
 use DBI;
 use Data::Dumper;
 use Chart::Gnuplot;
-use POSIX qw(strftime);
+#use POSIX qw(strftime);
 
 use strict;
 use warnings;
@@ -34,18 +34,19 @@ my %colours = (
 
 #lap_times_demo();
 lap_times_db();
+
 # TODO
 # multi-plot
 # legend
 # car colours
 # title from database
+
 sub lap_times_db
 {
-    my $no    = 10;
-    my $id    = 'chn-2013';
-    my $font = 'Monaco, 12';
-    my $dashed = 'dashed';  # solid|dashed
-    my $times = <<'TIMES';
+    my $race_id = 'chn-2013';
+    my $font    = 'Monaco, 12';
+    my $dashed  = 'dashed';       # solid|dashed
+    my $times   = <<'TIMES';
 SELECT lap, secs
 FROM race_lap_sec
 WHERE no=? AND race_id=?
@@ -53,34 +54,17 @@ ORDER BY lap
 TIMES
 
     # get race hash
-    my $race = get_race($id);
+    my $race = get_race($race_id);
+
     # titles for graph and terminal window
-    my $year = (localtime $race->{epoch})[5] + 1900;
+    my $year  = ( localtime $race->{epoch} )[5] + 1900;
     my $title = "$race->{gp} Grand Prix $year \\nLap Times";
-    (my $term_title = $title) =~ s/\\n/ - /; 
-
-    # get lap times for one driver
-    my $dbh = $db_session->();
-    my @datasets;
-
-    foreach (1 .. 4, 10) {
-        my $times =
-        $dbh->selectcol_arrayref( $times, { Columns => [2] }, ($_ , $id ) );
-        my $ds = Chart::Gnuplot::DataSet->new(
-            xdata => [1 .. scalar @$times],
-            ydata => $times,
-            title => "Driver $_",
-            style => "lines",
-            color => $colours{$_},
-            linetype => $_ % 2 ? 'solid' : 'dash',
-        );
-        push @datasets, $ds;
-    }
+    ( my $term_title = $title ) =~ s/\\n/ - /;
 
     # Create chart object and specify the properties of the chart
     my $chart = Chart::Gnuplot->new(
         terminal => qq!aqua title "$term_title" font "$font" $dashed!,
-        title    => $title, 
+        title    => $title,
         ylabel   => "Time (secs)",
         xlabel   => "Lap",
         ytics    => {
@@ -92,15 +76,39 @@ TIMES
             ylines   => 'on',
         },
         yrange => '[] reverse',
-        xrange => [ 1, $race->{laps}],
+        xrange => [ 1, $race->{laps} ],
         legend => {
             position => 'outside',
-            align => 'left',
-            title => 'Key',
+            align    => 'left',
+            title    => 'Key',
         },
         key => 'font "Monaco, 10"',
     );
 
+    # get lap times for selected driver
+    my $dbh = $db_session->();
+    my $sth = $dbh->prepare($times);
+    my @datasets;
+
+    foreach ( 1 .. 4, 10 ) {
+        my $times =
+          $dbh->selectcol_arrayref( $sth, { Columns => [2] },
+            ( $_, $race_id ) );
+        my $ds = Chart::Gnuplot::DataSet->new(
+            xdata    => [ 1 .. scalar @$times ],
+            ydata    => $times,
+            title    => "Driver $_",
+            style    => "lines",
+            color    => $colours{$_},
+            linetype => $_ % 2 ? 'solid' : 'dash',
+        );
+        push @datasets, $ds;
+    }
+
+    # close db handle
+    $dbh->disconnect();
+
+    #plot chart
     $chart->plot2d(@datasets);
 }
 
@@ -192,7 +200,7 @@ SQL
     my $href;
     my $dbh = $db_session->();
     my $sth = $dbh->prepare($sql);
-    $sth->execute( $id );
+    $sth->execute($id);
 
     unless ( $href = $sth->fetchrow_hashref ) {
         if ( $sth->err ) {
@@ -205,4 +213,4 @@ SQL
 
     return $href;
 }
-    
+
