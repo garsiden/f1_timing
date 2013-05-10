@@ -85,12 +85,12 @@ TIMES
         key => 'font "Monaco, 10"',
     );
 
-    # get lap times for selected driver
+    # get lap times for selected drivers
     my $dbh = $db_session->();
     my $sth = $dbh->prepare($times);
     my @datasets;
 
-    foreach ( 1 .. 4, 14 ) {
+    foreach ( 1 .. 10 ) {
         my $times =
           $dbh->selectcol_arrayref( $sth, { Columns => [1] },
             ( $_, $race_id ) );
@@ -132,25 +132,29 @@ TIMES
     
     my $dbh = $db_session->();
     my $sth = $dbh->prepare($times);
-    my $time =
-    $dbh->selectcol_arrayref( $sth, { Columns => [1] },
-        ( $no, $race_id ) );
-    
-    # create array ref of lap times differences
+    my @datasets;
     my $avg = $win_time->{avg};
-    my $d;
-    my $diff = [ map { $d += $_ - $avg } @$time ];
 
-    # create dataset
-    my $ds = Chart::Gnuplot::DataSet->new(
-        xdata    => [ 1 .. scalar @$diff ],
-        ydata    => $diff,
-        title    => sprintf ("Driver %2d", $no), 
-        style    => "lines",
-        color    => $colours{$no},
-        linetype => line_type($no),
-    );
+    foreach ( 1 .. 10 ) {
+        my $time =
+        $dbh->selectcol_arrayref( $sth, { Columns => [1] },
+            ( $_, $race_id ) );
 
+        # create array ref of lap times differences
+        my $d;
+        my $diff = [ map { $d += $_ - $avg } @$time ];
+
+        # create dataset
+        my $ds = Chart::Gnuplot::DataSet->new(
+            xdata    => [ 1 .. scalar @$diff ],
+            ydata    => $diff,
+            title    => sprintf ("Driver %2d", $_), 
+            style    => "lines",
+            color    => $colours{$_},
+            linetype => line_type($_),
+        );
+        push @datasets, $ds;
+    }
     # get race hash
     my $race = get_race($race_id);
 
@@ -183,7 +187,7 @@ TIMES
         key => 'font "Monaco, 10"',
     );
 
-    $chart->plot2d($ds);
+    $chart->plot2d(@datasets);
 }
 
 # DATABASE
