@@ -3,8 +3,6 @@
 use DBI;
 use Data::Dumper;
 use Chart::Gnuplot;
-use Time::Local;
-#use POSIX qw(strftime);
 
 use strict;
 use warnings;
@@ -20,6 +18,12 @@ use constant DB_PATH => "$ENV{HOME}/Documents/F1/" . SEASON
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
+# graph global variables
+my $font = 'Monaco';
+my $graph_font = "$font, 12";
+my $legend_font = "$font, 10";
+my $dashed  = 'dashed';       # solid|dashed
+
 my $db_path = undef;
 
 # database session handle
@@ -33,19 +37,17 @@ my %colours = (
     22, "#ED528A", 23, "#F5AAC4",
 );
 
-#lap_times_db();
-race_winner('chn-2013');
+use constant RACE_ID => 'chn-2013';
 
-race_lap_diff();
+#lap_times_db(RACE_ID);
+race_lap_diff(RACE_ID);
 
 # TODO
 # title from database
 
 sub lap_times_db
 {
-    my $race_id = 'chn-2013';
-    my $font    = 'Monaco, 12';
-    my $dashed  = 'dashed';       # solid|dashed
+    my $race_id = shift;
     my $times   = <<'TIMES';
 SELECT secs
 FROM race_lap_sec
@@ -63,7 +65,7 @@ TIMES
 
     # Create chart object and specify the properties of the chart
     my $chart = Chart::Gnuplot->new(
-        terminal => qq!aqua title "$term_title" font "$font" $dashed!,
+        terminal => qq!aqua title "$term_title" font "$graph_font" $dashed!,
         title    => $title,
         ylabel   => "Time (secs)",
         xlabel   => "Lap",
@@ -82,7 +84,7 @@ TIMES
             align    => 'left',
             title    => 'Key',
         },
-        key => 'font "Monaco, 10"',
+        key => qq!font "$legend_font"!,
     );
 
     # get lap times for selected drivers
@@ -114,10 +116,7 @@ TIMES
 
 sub race_lap_diff
 {
-    my $no = 4;
-    my $font    = 'Monaco, 12';
-    my $dashed  = 'dashed';       # solid|dashed
-    my $race_id = 'chn-2013';
+    my $race_id = shift;
 
     # race winning time and numer of laps
     my $win_time = race_winner($race_id);
@@ -141,8 +140,8 @@ TIMES
             ( $_, $race_id ) );
 
         # create array ref of lap times differences
-        my $d;
-        my $diff = [ map { $d += $_ - $avg } @$time ];
+        my $run_tot;
+        my $diff = [ map { $run_tot += $_ - $avg } @$time ];
 
         # create dataset
         my $ds = Chart::Gnuplot::DataSet->new(
@@ -155,6 +154,7 @@ TIMES
         );
         push @datasets, $ds;
     }
+
     # get race hash
     my $race = get_race($race_id);
 
@@ -165,7 +165,7 @@ TIMES
 
     # Create chart object and specify the properties of the chart
     my $chart = Chart::Gnuplot->new(
-        terminal => qq!aqua title "$term_title" font "$font" $dashed!,
+        terminal => qq!aqua title "$term_title" font "$graph_font" $dashed!,
         title    => $title,
         ylabel   => "Difference (secs)",
         xlabel   => "Lap",
@@ -184,7 +184,7 @@ TIMES
             align    => 'left',
             title    => 'Key',
         },
-        key => 'font "Monaco, 10"',
+        key => qq!font "$legend_font"!,
     );
 
     $chart->plot2d(@datasets);
@@ -289,8 +289,6 @@ SQL
 
     $win->{secs} = $secs;
     $win->{avg} = $secs / $win->{laps};
-    #say $secs;
-    #print Dumper $win;
 
     return $win;
 }
