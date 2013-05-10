@@ -32,13 +32,9 @@ my %colours = (
     22, "#ED528A", 23, "#F5AAC4",
 );
 
-#lap_times_demo();
 lap_times_db();
 
 # TODO
-# multi-plot
-# legend
-# car colours
 # title from database
 
 sub lap_times_db
@@ -47,7 +43,7 @@ sub lap_times_db
     my $font    = 'Monaco, 12';
     my $dashed  = 'dashed';       # solid|dashed
     my $times   = <<'TIMES';
-SELECT lap, secs
+SELECT secs
 FROM race_lap_sec
 WHERE no=? AND race_id=?
 ORDER BY lap
@@ -90,17 +86,17 @@ TIMES
     my $sth = $dbh->prepare($times);
     my @datasets;
 
-    foreach ( 1 .. 4, 10 ) {
+    foreach ( 1 .. 4, 14 ) {
         my $times =
-          $dbh->selectcol_arrayref( $sth, { Columns => [2] },
+          $dbh->selectcol_arrayref( $sth, { Columns => [1] },
             ( $_, $race_id ) );
         my $ds = Chart::Gnuplot::DataSet->new(
             xdata    => [ 1 .. scalar @$times ],
             ydata    => $times,
-            title    => "Driver $_",
+            title    => sprintf ("Driver %2d", $_), 
             style    => "lines",
             color    => $colours{$_},
-            linetype => $_ % 2 ? 'solid' : 'dash',
+            linetype => line_type($_),
         );
         push @datasets, $ds;
     }
@@ -110,39 +106,6 @@ TIMES
 
     #plot chart
     $chart->plot2d(@datasets);
-}
-
-sub lap_times_demo
-{
-    # Data
-    my @ytimes = (
-        96.345, 96.567, 97.765, 97.321, 96.987, 96.589,
-        96.123, 96.476, 95.987, 96.001
-    );
-    my @xlaps = ( 1 .. 10 );
-
-    # Create chart object and specify the properties of the chart
-    my $chart = Chart::Gnuplot->new(
-        terminal => 'aqua',
-        title    => "Lap Times (Demo)",
-        ylabel   => "Time (secs)",
-        xlabel   => "Lap",
-        ytics    => {
-            labelfmt => "%5.3f",
-        },
-    );
-
-    # Create dataset object and specify the properties of the dataset
-    my $dataSet = Chart::Gnuplot::DataSet->new(
-        xdata => \@xlaps,
-        ydata => \@ytimes,
-        title => "Driver 1",
-        style => "lines",
-
-    );
-
-    # Plot the data set on the chart
-    $chart->plot2d($dataSet);
 }
 
 # DATABASE
@@ -214,3 +177,15 @@ SQL
     return $href;
 }
 
+sub line_type
+{
+    my $no = shift;
+
+    $no % 2
+      ? $no < 13
+          ? 'solid'
+          : 'dash'
+      : $no > 13 ? 'solid'
+      :            'dash';
+
+}
