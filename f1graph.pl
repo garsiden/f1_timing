@@ -11,6 +11,7 @@ use 5.012;
 # config constants
 use constant SEASON   => '2013';
 use constant DOCS_DIR => "$ENV{HOME}/Documents/F1/";
+use constant GRAPH_DIR => DOCS_DIR . SEASON . '/Graphs/';
 
 # database constants
 use constant DB_PATH => "$ENV{HOME}/Documents/F1/" . SEASON
@@ -21,8 +22,8 @@ use constant DB_USER => q{};
 # graph global variables
 my $font = 'Monaco';
 my $graph_font = "$font, 12";
-my $legend_font = "$font, 10";
-my $dashed  = 'dashed';       # solid|dashed
+my $legend_font = "$font, 12";
+my $dashed  = 'dash';       # solid|dashed
 
 my $db_path = undef;
 
@@ -43,6 +44,9 @@ use constant RACE_ID => 'chn-2013';
 race_lap_diff(RACE_ID);
 
 # TODO
+# add driver name to key
+# increase width of plot line
+# see if possible to make last x axis tick no of race laps
 # title from database
 
 sub lap_times_db
@@ -122,18 +126,30 @@ sub race_lap_diff
     my $win_time = race_winner($race_id);
 
     # get a driver's lap times for comparison
-    my $times   = <<'TIMES';
+    my $time_sql   = <<'TIMES';
 SELECT secs
 FROM race_lap_sec
 WHERE no=? AND race_id=?
 ORDER BY lap
 TIMES
-    
+   
+    my $driver_sql = <<'DRIVERS';
+SELECT no, name
+FROM race_driver
+WHERE race_id=?
+DRIVERS
+
     my $dbh = $db_session->();
-    my $sth = $dbh->prepare($times);
     my @datasets;
     my $avg = $win_time->{avg};
+    my $sth = $dbh->prepare($driver_sql);
+    my %drivers = @{
+        $dbh->selectcol_arrayref( $sth, { Columns => [ 1, 2 ] }, ($race_id) )
+    };
+    $sth->finish;
+    print Dumper \%drivers;
 
+    $sth = $dbh->prepare($time_sql);
     foreach ( 1 .. 10 ) {
         my $time =
         $dbh->selectcol_arrayref( $sth, { Columns => [1] },
@@ -147,13 +163,15 @@ TIMES
         my $ds = Chart::Gnuplot::DataSet->new(
             xdata    => [ 1 .. scalar @$diff ],
             ydata    => $diff,
-            title    => sprintf ("Driver %2d", $_), 
+            title    => substr($drivers{$_},3),
             style    => "lines",
             color    => $colours{$_},
             linetype => line_type($_),
+            width    => 2,
         );
         push @datasets, $ds;
     }
+    $sth->finish;
 
     # get race hash
     my $race = get_race($race_id);
@@ -163,10 +181,17 @@ TIMES
     my $title = "$race->{gp} Grand Prix $year \\nRace Lap Differences";
     ( my $term_title = $title ) =~ s/\\n/ - /;
 
+    # my $outfile = GRAPH_DIR . 'race_lap_diff.png',
     # Create chart object and specify the properties of the chart
     my $chart = Chart::Gnuplot->new(
-        terminal => qq!aqua title "$term_title" font "$graph_font" $dashed!,
-        title    => $title,
+        # terminal => qq|aqua title "$term_title" font "$graph_font" $dashed|,
+        output =>  GRAPH_DIR . 'race_lap_diff_and.png',
+        terminal => qq|pngcairo enhanced dashed font "Andale Mono,10"|,
+        bg => 'white',
+        title    => {
+            text => $title,
+            font => "Verdana Bold, 10",
+        },
         ylabel   => "Difference (secs)",
         xlabel   => "Lap",
         ytics    => {
@@ -176,6 +201,8 @@ TIMES
             linetype => 'dash',
             xlines   => 'off',
             ylines   => 'on',
+            color    => 'grey',
+            width    => 1,
         },
         yrange => '[] reverse',
         xrange => [ 1, $race->{laps} ],
@@ -184,7 +211,16 @@ TIMES
             align    => 'left',
             title    => 'Key',
         },
-        key => qq!font "$legend_font"!,
+        imagesize => "800,600",
+        timestamp => 'on',
+        key => qq!font ",8"!,
+       
+         # xtics => 'add("57",57)',
+         # xtics => "0,5,57",
+         # xtics => 'autofreq',
+         # xtics => {
+         #     labels => [0,10,50],
+         # },
     );
 
     $chart->plot2d(@datasets);
