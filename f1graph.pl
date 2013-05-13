@@ -20,10 +20,10 @@ use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
 # graph global variables
-my $font = 'Monaco';
-my $graph_font = "$font, 12";
-my $legend_font = "$font, 12";
-my $dashed  = 'dash';       # solid|dashed
+my $font = 'Andale Mono';
+my $graph_font = "$font,10";
+my $legend_font = "$font,8";
+my $dashed  = 'dashed';       # solid|dashed
 
 my $db_path = undef;
 
@@ -38,14 +38,11 @@ my %colours = (
     22, "#ED528A", 23, "#F5AAC4",
 );
 
-use constant RACE_ID => 'chn-2013';
+use constant RACE_ID => 'esp-2013';
 
-#lap_times_db(RACE_ID);
 race_lap_diff(RACE_ID);
 
 # TODO
-# add driver name to key
-# increase width of plot line
 # see if possible to make last x axis tick no of race laps
 # title from database
 
@@ -122,9 +119,6 @@ sub race_lap_diff
 {
     my $race_id = shift;
 
-    # race winning time and numer of laps
-    my $win_time = race_winner($race_id);
-
     # get a driver's lap times for comparison
     my $time_sql   = <<'TIMES';
 SELECT secs
@@ -132,41 +126,33 @@ FROM race_lap_sec
 WHERE no=? AND race_id=?
 ORDER BY lap
 TIMES
-   
-    my $driver_sql = <<'DRIVERS';
-SELECT no, name
-FROM race_driver
-WHERE race_id=?
-DRIVERS
 
-    my $dbh = $db_session->();
+    my $race_class = race_class($race_id);
+    my $total_secs = $race_class->[0]{secs};
+    my $avg = $total_secs / $race_class->[0]{laps};
+    
     my @datasets;
-    my $avg = $win_time->{avg};
-    my $sth = $dbh->prepare($driver_sql);
-    my %drivers = @{
-        $dbh->selectcol_arrayref( $sth, { Columns => [ 1, 2 ] }, ($race_id) )
-    };
-    $sth->finish;
-    print Dumper \%drivers;
-
-    $sth = $dbh->prepare($time_sql);
-    foreach ( 1 .. 10 ) {
+    my $dbh = $db_session->();
+    my $sth = $dbh->prepare($time_sql);
+    
+    foreach (@$race_class[0 .. 9]) {
+        my $no = $_->{no};
         my $time =
         $dbh->selectcol_arrayref( $sth, { Columns => [1] },
-            ( $_, $race_id ) );
+            ( $no, $race_id ) );
 
         # create array ref of lap times differences
         my $run_tot;
-        my $diff = [ map { $run_tot += $_ - $avg } @$time ];
+        my $diff = [ map { $run_tot += $avg - $_} @$time ];
 
         # create dataset
         my $ds = Chart::Gnuplot::DataSet->new(
             xdata    => [ 1 .. scalar @$diff ],
             ydata    => $diff,
-            title    => substr($drivers{$_},3),
+            title    => substr($_->{driver},3),
             style    => "lines",
-            color    => $colours{$_},
-            linetype => line_type($_),
+            color    => $colours{$no},
+            linetype => line_type($no),
             width    => 2,
         );
         push @datasets, $ds;
@@ -181,16 +167,15 @@ DRIVERS
     my $title = "$race->{gp} Grand Prix $year \\nRace Lap Differences";
     ( my $term_title = $title ) =~ s/\\n/ - /;
 
-    # my $outfile = GRAPH_DIR . 'race_lap_diff.png',
     # Create chart object and specify the properties of the chart
     my $chart = Chart::Gnuplot->new(
         # terminal => qq|aqua title "$term_title" font "$graph_font" $dashed|,
         output =>  GRAPH_DIR . 'race_lap_diff_and.png',
-        terminal => qq|pngcairo enhanced dashed font "Andale Mono,10"|,
+        terminal => qq|pngcairo enhanced dashed font "$graph_font"|,
         bg => 'white',
         title    => {
             text => $title,
-            font => "Verdana Bold, 10",
+            font => "Bitstream Vera Sans Bold, 12",
         },
         ylabel   => "Difference (secs)",
         xlabel   => "Lap",
@@ -204,23 +189,19 @@ DRIVERS
             color    => 'grey',
             width    => 1,
         },
-        yrange => '[] reverse',
+        # yrange => '[] reverse',
         xrange => [ 1, $race->{laps} ],
         legend => {
             position => 'outside',
             align    => 'left',
             title    => 'Key',
         },
-        imagesize => "800,600",
-        timestamp => 'on',
-        key => qq!font ",8"!,
-       
-         # xtics => 'add("57",57)',
-         # xtics => "0,5,57",
-         # xtics => 'autofreq',
-         # xtics => {
-         #     labels => [0,10,50],
-         # },
+        imagesize => "1000,600",
+        timestamp => {
+            fmt => '%a, %d %b %Y %H:%M:%S',
+            font => "Andale Mono,8",
+        },
+        key => qq!font "Andale Mono,8"!,
     );
 
     $chart->plot2d(@datasets);
@@ -308,23 +289,32 @@ sub line_type
 
 }
 
-sub race_winner
+sub race_class
 {
     my $race_id = shift;
-    my $dbh = $db_session->();
+    my $dbh     = $db_session->();
 
-    my $sql   = <<'SQL';
-SELECT total_time, laps
+    my $sql = <<'SQL';
+SELECT pos, no, driver, total_time, laps
 FROM race_classification
-WHERE race_id=? AND pos=1
+WHERE race_id=? AND pos
 SQL
 
-    my $win = $dbh->selectrow_hashref($sql, {}, $race_id);
-    my ($h, $m, $s, $f) = $win->{total_time} =~ /(\d):(\d\d):(\d\d)\.(\d{1,3})/;
+    my $win = $dbh->selectall_arrayref( $sql, { Slice => {} }, $race_id );
+
+    # sort not required if only classified drivers are included 
+    my @sorted = sort { $b->{laps} <=> $a->{laps} || $a->{secs} <=> $b->{secs} }
+      map { $_->{secs} = secsftime( $_->{total_time} ); $_ } @$win;
+
+    return \@sorted;
+}
+
+sub secsftime
+{
+    my $time = shift;
+
+    my ($h, $m, $s, $f) = $time =~ /(\d):(\d\d):(\d\d)\.(\d{1,3})/;
     my $secs = ($h * 60 + $m) * 60 + $s + $f / 1_000;
 
-    $win->{secs} = $secs;
-    $win->{avg} = $secs / $win->{laps};
-
-    return $win;
+    return $secs;
 }
