@@ -3,6 +3,9 @@
 use DBI;
 use Data::Dumper;
 use Chart::Gnuplot;
+use Getopt::Long;
+use Pod::Usage;
+use File::Spec::Functions qw(:DEFAULT splitpath );
 
 use strict;
 use warnings;
@@ -39,8 +42,58 @@ my %colours = (
 );
 
 use constant RACE_ID => 'esp-2013';
+use constant VERSION => '20130513';
 
-race_lap_diff(RACE_ID);
+# command line option variables
+my $race_id     = undef;
+my $term        = undef;
+my $graph       = undef;
+my $outdir    = undef;
+# TODO
+my $season      = undef;
+my $quiet       = 0;
+my $db_path     = undef;
+my $help        = 0;
+my $man         = 0;
+my $version     = 0;
+
+Getopt::Long::Configure qw( no_auto_abbrev bundling);
+GetOptions(
+    'race-id=s'     => \$race_id,
+    'r=s'           => \$race_id,
+    'term=s'      => \$term,
+    't=s'           => \$term,
+    'graph=s'      => \$graph,
+    'g=s'      => \$graph,
+    'o=s'           => \$graph,
+    'outdir=s'    => \$outdir,
+    # TODO
+    'season=s'      => \$season,
+    's=s'           => \$season,
+    'db-path=s'     => \$db_path,
+    'quiet'         => \$quiet,
+    'q'             => \$quiet,
+    'help'          => \$help,
+    'man'           => \$man,
+    'version'       => \$version,
+) or pod2usage();
+
+# Process command-line arguments
+#
+# use default options if none specified
+unless ($race_id) { $race_id = get_current_race()->{id} }
+# unless ($term) { $term = 'aqua' }
+$term ||= 'aqua';
+$outdir ||= GRAPH_DIR;
+if    ($help)               { pod2usage(2) }
+elsif ($man)                { pod2usage( -verbose => 2 ) }
+elsif ( defined $timing )   { get_timing() }
+elsif ( defined $import )   { db_import($import) }
+elsif ( defined $calendar ) { show_calendar($calendar) }
+elsif ( defined $export ) { export( $export, $race_id ) }
+elsif ($version) { print "$0 v@{[VERSION]}\n" }
+
+race_lap_diff($race_id);
 
 # TODO
 # see if possible to make last x axis tick no of race laps
@@ -170,7 +223,7 @@ TIMES
     # Create chart object and specify the properties of the chart
     my $chart = Chart::Gnuplot->new(
         # terminal => qq|aqua title "$term_title" font "$graph_font" $dashed|,
-        output =>  GRAPH_DIR . 'race_lap_diff_and.png',
+        output =>  $outdir . 'race_lap_diff_and.png',
         terminal => qq|pngcairo enhanced dashed font "$graph_font"|,
         bg => 'white',
         title    => {
@@ -317,4 +370,21 @@ sub secsftime
     my $secs = ($h * 60 + $m) * 60 + $s + $f / 1_000;
 
     return $secs;
+}
+
+sub get_current_race
+{
+    my ( $sql, $href );
+
+    $sql = 'SELECT rd, id, page FROM current_race';
+    my $dbh = $db_session->();
+    my $sth = $dbh->prepare($sql);
+    $sth->execute;
+    unless ( $href = $sth->fetchrow_hashref ) {
+        if ( $sth->err ) {
+            warn "Database error: $sth->errstr\n";
+        }
+    }
+
+    return $href;
 }
