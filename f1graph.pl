@@ -12,8 +12,8 @@ use warnings;
 use 5.012;
 
 # config constants
-use constant SEASON   => '2013';
-use constant DOCS_DIR => "$ENV{HOME}/Documents/F1/";
+use constant SEASON    => '2013';
+use constant DOCS_DIR  => "$ENV{HOME}/Documents/F1/";
 use constant GRAPH_DIR => DOCS_DIR . SEASON . '/Graphs/';
 
 # database constants
@@ -22,13 +22,12 @@ use constant DB_PATH => "$ENV{HOME}/Documents/F1/" . SEASON
 use constant DB_PWD  => q{};
 use constant DB_USER => q{};
 
-# graph global variables
-my $font = 'Andale Mono';
-my $graph_font = "$font,10";
-my $legend_font = "$font,8";
-my $dashed  = 'dashed';       # solid|dashed
-
-my $db_path = undef;
+# graph global constants
+use constant AQUA_FONT       => 'Andale Mono';
+use constant AQUA_TITLE_FONT => 'Verdana';
+use constant PNG_FONT        => 'Monaco';
+use constant PNG_TITLE_FONT  => "Vera, 12";
+use constant DASHED          => 'dashed';        # solid|dashed
 
 # database session handle
 my $db_session = db_connect();
@@ -41,57 +40,61 @@ my %colours = (
     22, "#ED528A", 23, "#F5AAC4",
 );
 
-use constant RACE_ID => 'esp-2013';
 use constant VERSION => '20130513';
 
 # command line option variables
-my $race_id     = undef;
-my $term        = undef;
-my $graph       = undef;
-my $outdir    = undef;
+my $race_id = undef;
+my $term    = undef;
+my $graph   = undef;
+my $outdir  = undef;
+my $version = 0;
+
 # TODO
-my $season      = undef;
-my $quiet       = 0;
-my $db_path     = undef;
-my $help        = 0;
-my $man         = 0;
-my $version     = 0;
+my $season  = undef;
+my $quiet   = 0;
+my $db_path = undef;
+my $help    = 0;
+my $man     = 0;
 
 Getopt::Long::Configure qw( no_auto_abbrev bundling);
 GetOptions(
-    'race-id=s'     => \$race_id,
-    'r=s'           => \$race_id,
-    'term=s'      => \$term,
-    't=s'           => \$term,
-    'graph=s'      => \$graph,
-    'g=s'      => \$graph,
-    'o=s'           => \$graph,
-    'outdir=s'    => \$outdir,
+    'race-id=s' => \$race_id,
+    'r=s'       => \$race_id,
+    'term=s'    => \$term,
+    't=s'       => \$term,
+    'graph=s'   => \$graph,
+    'g=s'       => \$graph,
+    'o=s'       => \$graph,
+    'outdir=s'  => \$outdir,
+    'version'   => \$version,
+
     # TODO
-    'season=s'      => \$season,
-    's=s'           => \$season,
-    'db-path=s'     => \$db_path,
-    'quiet'         => \$quiet,
-    'q'             => \$quiet,
-    'help'          => \$help,
-    'man'           => \$man,
-    'version'       => \$version,
+    'season=s'  => \$season,
+    's=s'       => \$season,
+    'db-path=s' => \$db_path,
+    'quiet'     => \$quiet,
+    'q'         => \$quiet,
+    'help'      => \$help,
+    'man'       => \$man,
 ) or pod2usage();
 
 # Process command-line arguments
 #
 # use default options if none specified
-unless ($race_id) { $race_id = get_current_race()->{id} }
-# unless ($term) { $term = 'aqua' }
-$term ||= 'aqua';
-$outdir ||= GRAPH_DIR;
-if    ($help)               { pod2usage(2) }
-elsif ($man)                { pod2usage( -verbose => 2 ) }
-elsif ( defined $timing )   { get_timing() }
-elsif ( defined $import )   { db_import($import) }
-elsif ( defined $calendar ) { show_calendar($calendar) }
-elsif ( defined $export ) { export( $export, $race_id ) }
-elsif ($version) { print "$0 v@{[VERSION]}\n" }
+$term    ||= 'aqua';
+$outdir  ||= GRAPH_DIR;
+$season  ||= (localtime)[5] + 1900;
+$race_id ||= get_current_race()->{id};
+$race_id .= "-$season";
+
+if ($help) { pod2usage(2) }
+elsif ($man) { pod2usage( -verbose => 2 ) }
+
+# elsif ( defined $timing )   { get_timing() }
+# elsif ( defined $import )   { db_import($import) }
+# elsif ( defined $calendar ) { show_calendar($calendar) }
+# elsif ( defined $export ) { export( $export, $race_id ) }
+elsif ($version) { print "$0 v@{[VERSION]}\n"; exit }
 
 race_lap_diff($race_id);
 
@@ -117,9 +120,18 @@ TIMES
     my $title = "$race->{gp} Grand Prix $year \\nLap Times";
     ( my $term_title = $title ) =~ s/\\n/ - /;
 
+    my ( $terminal, $term_font, $key_font, $title_font, $time_font, $dashed );
+
+    $term_font  = AQUA_FONT . ',12';
+    $key_font   = AQUA_FONT . ',10';
+    $title_font = AQUA_TITLE_FONT . ' Bold,12';
+    $time_font  = AQUA_FONT . ',9';
+    $dashed     = DASHED;
+    $terminal   = qq|aqua title "$term_title" font "$term_font" $dashed|;
+
     # Create chart object and specify the properties of the chart
     my $chart = Chart::Gnuplot->new(
-        terminal => qq!aqua title "$term_title" font "$graph_font" $dashed!,
+        terminal => $terminal,
         title    => $title,
         ylabel   => "Time (secs)",
         xlabel   => "Lap",
@@ -138,7 +150,7 @@ TIMES
             align    => 'left',
             title    => 'Key',
         },
-        key => qq!font "$legend_font"!,
+        key => qq!font "$key_font"!,
     );
 
     # get lap times for selected drivers
@@ -153,7 +165,7 @@ TIMES
         my $ds = Chart::Gnuplot::DataSet->new(
             xdata    => [ 1 .. scalar @$times ],
             ydata    => $times,
-            title    => sprintf ("Driver %2d", $_), 
+            title    => sprintf( "Driver %2d", $_ ),
             style    => "lines",
             color    => $colours{$_},
             linetype => line_type($_),
@@ -173,7 +185,7 @@ sub race_lap_diff
     my $race_id = shift;
 
     # get a driver's lap times for comparison
-    my $time_sql   = <<'TIMES';
+    my $time_sql = <<'TIMES';
 SELECT secs
 FROM race_lap_sec
 WHERE no=? AND race_id=?
@@ -182,27 +194,30 @@ TIMES
 
     my $race_class = race_class($race_id);
     my $total_secs = $race_class->[0]{secs};
-    my $avg = $total_secs / $race_class->[0]{laps};
-    
+    my $laps       = $race_class->[0]{laps};
+    my $avg        = $total_secs / $laps;
+
     my @datasets;
     my $dbh = $db_session->();
     my $sth = $dbh->prepare($time_sql);
-    
-    foreach (@$race_class[0 .. 9]) {
-        my $no = $_->{no};
-        my $time =
-        $dbh->selectcol_arrayref( $sth, { Columns => [1] },
-            ( $no, $race_id ) );
+
+    foreach ( @$race_class[ 0 .. 9 ] ) {
+        my $no   = $_->{no};
+        my $time = $dbh->selectcol_arrayref(
+            $sth,
+            { Columns => [1] },
+            ( $no, $race_id )
+        );
 
         # create array ref of lap times differences
         my $run_tot;
-        my $diff = [ map { $run_tot += $avg - $_} @$time ];
+        my $diff = [ map { $run_tot += $avg - $_ } @$time ];
 
         # create dataset
         my $ds = Chart::Gnuplot::DataSet->new(
             xdata    => [ 1 .. scalar @$diff ],
             ydata    => $diff,
-            title    => substr($_->{driver},3),
+            title    => substr( $_->{driver}, 3 ),
             style    => "lines",
             color    => $colours{$no},
             linetype => line_type($no),
@@ -218,21 +233,47 @@ TIMES
     # titles for graph and terminal window
     my $year  = ( localtime $race->{epoch} )[5] + 1900;
     my $title = "$race->{gp} Grand Prix $year \\nRace Lap Differences";
+
     ( my $term_title = $title ) =~ s/\\n/ - /;
+
+    # set up required terminal
+    my ( $terminal, $term_font, $key_font, $title_font, $time_font, $dashed );
+    my $outfile;
+    my $output = undef;
+
+    if ( $term eq 'aqua' ) {
+        $term_font  = AQUA_FONT . ',12';
+        $key_font   = AQUA_FONT . ',10';
+        $title_font = AQUA_TITLE_FONT . ' Bold,12';
+        $time_font  = AQUA_FONT . ',9';
+        $dashed     = DASHED;
+        $terminal   = qq|aqua title "$term_title" font "$term_font" $dashed|;
+    }
+    elsif ( $term eq 'png' ) {
+        $term_font  = PNG_FONT . ',9';
+        $key_font   = PNG_FONT . ',7';
+        $title_font = PNG_TITLE_FONT . ',14';
+        $time_font  = PNG_FONT . ',7';
+        $dashed     = DASHED;
+        $terminal   = qq|pngcairo font "$term_font" $dashed|;
+        $outfile    = substr($race_id, 0, 3) . '-race-lap-diff.png';
+        $output     = catdir( $outdir, $outfile );
+    }
+    else {
+        die "Terminal type '$term' not recognized\n";
+    }
 
     # Create chart object and specify the properties of the chart
     my $chart = Chart::Gnuplot->new(
-        # terminal => qq|aqua title "$term_title" font "$graph_font" $dashed|,
-        output =>  $outdir . 'race_lap_diff_and.png',
-        terminal => qq|pngcairo enhanced dashed font "$graph_font"|,
-        bg => 'white',
+        terminal => $terminal,
+        bg       => 'white',
         title    => {
             text => $title,
-            font => "Bitstream Vera Sans Bold, 12",
+            font => $title_font,
         },
-        ylabel   => "Difference (secs)",
-        xlabel   => "Lap",
-        ytics    => {
+        ylabel => "Difference (secs)",
+        xlabel => "Lap",
+        ytics  => {
             labelfmt => "%5.3f",
         },
         grid => {
@@ -242,8 +283,7 @@ TIMES
             color    => 'grey',
             width    => 1,
         },
-        # yrange => '[] reverse',
-        xrange => [ 1, $race->{laps} ],
+        xrange => [ 1, $laps ],
         legend => {
             position => 'outside',
             align    => 'left',
@@ -251,13 +291,16 @@ TIMES
         },
         imagesize => "1000,600",
         timestamp => {
-            fmt => '%a, %d %b %Y %H:%M:%S',
-            font => "Andale Mono,8",
+            fmt  => '%a, %d %b %Y %H:%M:%S',
+            font => $time_font,
         },
-        key => qq!font "Andale Mono,8"!,
+        key => qq|font "$key_font"|,
     );
 
+    $chart->{output} = $output if $output;
     $chart->plot2d(@datasets);
+    # $chart->convert('pdf');
+    
 }
 
 # DATABASE
@@ -351,23 +394,24 @@ sub race_class
 SELECT pos, no, driver, total_time, laps
 FROM race_classification
 WHERE race_id=? AND pos
+ORDER BY pos ASC
 SQL
 
-    my $win = $dbh->selectall_arrayref( $sql, { Slice => {} }, $race_id );
+    my $class = $dbh->selectall_arrayref( $sql, { Slice => {} }, $race_id );
 
-    # sort not required if only classified drivers are included 
-    my @sorted = sort { $b->{laps} <=> $a->{laps} || $a->{secs} <=> $b->{secs} }
-      map { $_->{secs} = secsftime( $_->{total_time} ); $_ } @$win;
+    foreach (@$class) {
+        $_->{secs} = secsftime( $_->{total_time} );
+    }
 
-    return \@sorted;
+    return $class;
 }
 
 sub secsftime
 {
     my $time = shift;
 
-    my ($h, $m, $s, $f) = $time =~ /(\d):(\d\d):(\d\d)\.(\d{1,3})/;
-    my $secs = ($h * 60 + $m) * 60 + $s + $f / 1_000;
+    my ( $h, $m, $s, $f ) = $time =~ /(\d):(\d\d):(\d\d)\.(\d{1,3})/;
+    my $secs = ( $h * 60 + $m ) * 60 + $s + $f / 1_000;
 
     return $secs;
 }
@@ -376,7 +420,7 @@ sub get_current_race
 {
     my ( $sql, $href );
 
-    $sql = 'SELECT rd, id, page FROM current_race';
+    $sql = "SELECT rd, id FROM current_race";
     my $dbh = $db_session->();
     my $sth = $dbh->prepare($sql);
     $sth->execute;
