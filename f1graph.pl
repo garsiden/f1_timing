@@ -96,21 +96,60 @@ elsif ($man) { pod2usage( -verbose => 2 ) }
 # elsif ( defined $export ) { export( $export, $race_id ) }
 elsif ($version) { print "$0 v@{[VERSION]}\n"; exit }
 
-race_lap_diff($race_id);
+# closures for tables
+my $graph_tab = get_graph_table();
+my $GR        = &$graph_tab->{$graph};
+my $term_tab  = get_term_table();
+
+# run graphing sub
+$GR->{grapher}($race_id);
 
 # TODO
 # see if possible to make last x axis tick no of race laps
 # title from database
 
-sub lap_times_db
+sub race_lap_times
 {
     my $race_id = shift;
-    my $times   = <<'TIMES';
+
+    # get race classification
+    my $race_class = race_class($race_id);
+    my $laps       = $race_class->[0]{laps};
+
+    my $times = <<'TIMES';
 SELECT secs
 FROM race_lap_sec
 WHERE no=? AND race_id=?
 ORDER BY lap
 TIMES
+
+    # get lap times for classified drivers
+    my $dbh = $db_session->();
+    my $sth = $dbh->prepare($times);
+
+    my @datasets;
+    foreach ( @$race_class[ 0 .. 9 ] ) {
+        my $no   = $_->{no};
+        my $time = $dbh->selectcol_arrayref(
+            $sth,
+            { Columns => [1] },
+            ( $no, $race_id )
+        );
+
+        # create dataset
+        my $ds = Chart::Gnuplot::DataSet->new(
+            xdata    => [ 1 .. scalar @$time ],
+            ydata    => $time,
+            title    => substr( $_->{driver}, 3 ),
+            style    => "lines",
+            color    => $colours{$no},
+            linetype => line_type($no),
+            width    => 1,
+        );
+        push @datasets, $ds;
+    }
+
+    $sth->finish;
 
     # get race hash
     my $race = get_race($race_id);
@@ -118,65 +157,42 @@ TIMES
     # titles for graph and terminal window
     my $year  = ( localtime $race->{epoch} )[5] + 1900;
     my $title = "$race->{gp} Grand Prix $year \\nLap Times";
-    ( my $term_title = $title ) =~ s/\\n/ - /;
 
-    my ( $terminal, $term_font, $key_font, $title_font, $time_font, $dashed );
+    # set up required terminal & output
+    my $tm       = &$term_tab->{$term};
+    my $terminal = qq|$tm->{type} font "$tm->{term_font}" $tm->{dash}|;
+    my $output   = undef;
 
-    $term_font  = AQUA_FONT . ',12';
-    $key_font   = AQUA_FONT . ',10';
-    $title_font = AQUA_TITLE_FONT . ' Bold,12';
-    $time_font  = AQUA_FONT . ',9';
-    $dashed     = DASHED;
-    $terminal   = qq|aqua title "$term_title" font "$term_font" $dashed|;
-
-    # Create chart object and specify the properties of the chart
-    my $chart = Chart::Gnuplot->new(
-        terminal => $terminal,
-        title    => $title,
-        ylabel   => "Time (secs)",
-        xlabel   => "Lap",
-        ytics    => {
-            labelfmt => "%5.3f",
-        },
-        grid => {
-            linetype => 'dash',
-            xlines   => 'off',
-            ylines   => 'on',
-        },
-        yrange => '[] reverse',
-        xrange => [ 1, $race->{laps} ],
-        legend => {
-            position => 'outside',
-            align    => 'left',
-            title    => 'Key',
-        },
-        key => qq!font "$key_font"!,
-    );
-
-    # get lap times for selected drivers
-    my $dbh = $db_session->();
-    my $sth = $dbh->prepare($times);
-    my @datasets;
-
-    foreach ( 1 .. 10 ) {
-        my $times =
-          $dbh->selectcol_arrayref( $sth, { Columns => [1] },
-            ( $_, $race_id ) );
-        my $ds = Chart::Gnuplot::DataSet->new(
-            xdata    => [ 1 .. scalar @$times ],
-            ydata    => $times,
-            title    => sprintf( "Driver %2d", $_ ),
-            style    => "lines",
-            color    => $colours{$_},
-            linetype => line_type($_),
-        );
-        push @datasets, $ds;
+    if ( $term eq 'aqua' ) {
+        ( my $term_title = $title ) =~ s/\\n/ - /;
+        $terminal .= qq| title "$term_title"|;
+    }
+    elsif ( $term = 'png' ) {
+        my $outfile = substr( $race_id, 0, 3 ) . "-$GR->{output}.png";
+        $output = catdir( $outdir, $outfile );
     }
 
-    # close db handle
-    $dbh->disconnect();
+    # Create chart object and specify the properties of the chart
+    my $base_options = $GR->{options};
+    my %options      = (
+        terminal => $terminal,
+        title    => {
+            text => $title,
+            font => $tm->{title_font},
+        },
+        xrange    => [ 1, $laps ],
+        key       => qq|font "$tm->{key_font}"|,
+        timestamp => {
+            font => $tm->{time_font},
+        },
+    );
 
-    #plot chart
+    # merge option hashes
+    @options{ keys %$base_options } = values %$base_options;
+
+    # create and plot chart
+    my $chart = Chart::Gnuplot->new(%options);
+    $chart->{output} = $output if $output;
     $chart->plot2d(@datasets);
 }
 
@@ -184,7 +200,13 @@ sub race_lap_diff
 {
     my $race_id = shift;
 
-    # get a driver's lap times for comparison
+    # get  winner's lap times for comparison
+    my $race_class = race_class($race_id);
+    my $total_secs = $race_class->[0]{secs};
+    my $laps       = $race_class->[0]{laps};
+    my $avg        = $total_secs / $laps;
+
+    # get classified drivers' lap times
     my $time_sql = <<'TIMES';
 SELECT secs
 FROM race_lap_sec
@@ -192,14 +214,9 @@ WHERE no=? AND race_id=?
 ORDER BY lap
 TIMES
 
-    my $race_class = race_class($race_id);
-    my $total_secs = $race_class->[0]{secs};
-    my $laps       = $race_class->[0]{laps};
-    my $avg        = $total_secs / $laps;
-
-    my @datasets;
     my $dbh = $db_session->();
     my $sth = $dbh->prepare($time_sql);
+    my @datasets;
 
     foreach ( @$race_class[ 0 .. 9 ] ) {
         my $no   = $_->{no};
@@ -247,7 +264,8 @@ TIMES
         $title_font = AQUA_TITLE_FONT . ' Bold,12';
         $time_font  = AQUA_FONT . ',9';
         $dashed     = DASHED;
-        $terminal   = qq|aqua title "$term_title" font "$term_font" $dashed|;
+        $terminal =
+          qq|aqua title "$term_title" font "$term_font" $dashed size "946,594"|;
     }
     elsif ( $term eq 'png' ) {
         $term_font  = PNG_FONT . ',9';
@@ -256,7 +274,7 @@ TIMES
         $time_font  = PNG_FONT . ',7';
         $dashed     = DASHED;
         $terminal   = qq|pngcairo font "$term_font" $dashed|;
-        $outfile    = substr($race_id, 0, 3) . '-race-lap-diff.png';
+        $outfile    = substr( $race_id, 0, 3 ) . '-race-lap-diff.png';
         $output     = catdir( $outdir, $outfile );
     }
     else {
@@ -299,8 +317,9 @@ TIMES
 
     $chart->{output} = $output if $output;
     $chart->plot2d(@datasets);
+
     # $chart->convert('pdf');
-    
+
 }
 
 # DATABASE
@@ -432,3 +451,103 @@ sub get_current_race
 
     return $href;
 }
+
+sub get_graph_table
+{
+    my $graph_href;
+
+    return sub {
+        unless ($graph_href) {
+            $graph_href = {
+                'race-lap-diff' => {
+                    title   => 'My Title',
+                    grapher => \&race_lap_diff,
+                    output  => 'race-lap-diff',
+                },
+                'race-lap-times' => {
+                    title   => 'My Title',
+                    grapher => \&race_lap_times,
+                    output  => 'race-lap-times',
+                    options => {
+                        bg     => 'white',
+                        ylabel => "Time (secs)",
+                        xlabel => "Lap",
+                        ytics  => {
+                            labelfmt => "%5.3f",
+                        },
+                        grid => {
+                            linetype => 'dash',
+                            xlines   => 'off',
+                            ylines   => 'on',
+                            color    => 'grey',
+                            width    => 1,
+                        },
+                        yrange => '[] reverse',
+                        legend => {
+                            position => 'outside',
+                            align    => 'left',
+                            title    => 'Key',
+                        },
+                        timestamp => {
+                            fmt => '%a, %d %b %Y %H:%M:%S',
+                        },
+                        imagesize => '900,600',
+                    },
+                },
+            };
+            return $graph_href;
+        }
+    };
+}
+
+sub get_drivers
+{
+    my $race_id = shift;
+
+    my $driver_sql = <<'DRIVERS';
+SELECT no, name
+FROM race_driver
+WHERE race_id=?
+DRIVERS
+
+    my $dbh = $db_session->();
+    my $sth = $dbh->prepare($driver_sql);
+    my %drivers =
+      @{ $dbh->selectcol_arrayref( $sth, { Columns => [ 1, 2 ] }, ($race_id) )
+      };
+    $sth->finish;
+    print Dumper \%drivers;
+
+    return \%drivers;
+}
+
+sub get_term_table
+{
+    my $term_href;
+
+    return sub {
+        unless ($term_href) {
+
+            $term_href = {
+                aqua => {
+                    type       => 'aqua',
+                    term_font  => AQUA_FONT . ',12',
+                    key_font   => AQUA_FONT . ',10',
+                    title_font => AQUA_TITLE_FONT . ' Bold,12',
+                    time_font  => AQUA_FONT . ',9',
+                    dash       => DASHED,
+                },
+                png => {
+                    type       => 'pngcairo',
+                    term_font  => PNG_FONT . ',9',
+                    key_font   => PNG_FONT . ',7',
+                    title_font => PNG_TITLE_FONT . ',14',
+                    time_font  => PNG_FONT . ',7',
+                    dash       => DASHED,
+                },
+            };
+        }
+    };
+}
+
+END { $db_session->()->disconnect }
