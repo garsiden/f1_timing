@@ -7,33 +7,33 @@ use Getopt::Long;
 use Pod::Usage;
 use File::Spec::Functions qw(:DEFAULT splitpath );
 use Hash::Merge qw(merge);
+use Const::Fast;
 
 use strict;
 use warnings;
 use 5.012;
 
 # config constants
-use constant SEASON    => '2013';
-use constant DOCS_DIR  => "$ENV{HOME}/Documents/F1/";
-use constant GRAPH_DIR => DOCS_DIR . SEASON . '/Graphs/';
+const my $SEASON    => '2013';
+const my $DOCS_DIR  => "$ENV{HOME}/Documents/F1";
+const my $GRAPH_DIR => "$DOCS_DIR/$SEASON/Graphs";
 
 # database constants
-use constant DB_PATH => "$ENV{HOME}/Documents/F1/" . SEASON
-  . '/db/f1_timing.db';
-use constant DB_PWD  => q{};
-use constant DB_USER => q{};
+const my $DB_PATH => "$DOCS_DIR/$SEASON/db/f1_timing.db";
+const my $DB_PWD  => q{};
+const my $DB_USER => q{};
 
 # graph global constants
-use constant AQUA_FONT       => 'Andale Mono';
-use constant AQUA_TITLE_FONT => 'Verdana';
-use constant PNG_FONT        => 'Monaco';
-use constant PNG_TITLE_FONT  => "Vera";
-use constant DASHED          => 'dashed';        # solid|dashed
+const my $AQUA_FONT       => 'Andale Mono';
+const my $AQUA_TITLE_FONT => 'Verdana';
+const my $PNG_FONT        => 'Monaco';
+const my $PNG_TITLE_FONT  => "Vera";
+const my $DASHED          => 'dashed';        # solid|dashed
 
 # database session handle
 my $db_session = db_connect();
 
-my %colours = (
+const my %COLOURS => (
     1,  "#020138", 2,  "#485184", 3,  "#B80606", 4,  "#B80606", 5,  "#B7BACC",
     6,  "#D0D7DF", 7,  "#F8A62D", 8,  "#F9D61A", 9,  "#72A5A6", 10, "#A7C8C9",
     11, "#646564", 12, "#989898", 14, "#B2C61B", 15, "#D6E741", 16, "#3F62A6",
@@ -41,7 +41,7 @@ my %colours = (
     22, "#ED528A", 23, "#F5AAC4",
 );
 
-use constant VERSION => '20130513';
+const my $VERSION => '20130513';
 
 # command line option variables
 my $race_id = undef;
@@ -83,7 +83,7 @@ GetOptions(
 #
 # use default options if none specified
 $term    ||= 'aqua';
-$outdir  ||= GRAPH_DIR;
+$outdir  ||= $GRAPH_DIR;
 $season  ||= (localtime)[5] + 1900;
 $race_id ||= get_current_race()->{id};
 $race_id .= "-$season";
@@ -95,7 +95,7 @@ elsif ($man) { pod2usage( -verbose => 2 ) }
 # elsif ( defined $import )   { db_import($import) }
 # elsif ( defined $calendar ) { show_calendar($calendar) }
 # elsif ( defined $export ) { export( $export, $race_id ) }
-elsif ($version) { print "$0 v@{[VERSION]}\n"; exit }
+elsif ($version) { print "$0 v$VERSION}\n"; exit }
 
 # closures for tables
 my $graph_tab = get_graph_table();
@@ -143,7 +143,7 @@ TIMES
             ydata    => $time,
             title    => substr( $_->{driver}, 3 ),
             style    => "lines",
-            color    => $colours{$no},
+            color    => $COLOURS{$no},
             linetype => line_type($no),
             width    => 1,
         );
@@ -238,7 +238,7 @@ TIMES
             ydata    => $diff,
             title    => substr( $_->{driver}, 3 ),
             style    => "lines",
-            color    => $colours{$no},
+            color    => $COLOURS{$no},
             linetype => line_type($no),
             width    => 2,
         );
@@ -261,20 +261,20 @@ TIMES
     my $output = undef;
 
     if ( $term eq 'aqua' ) {
-        $term_font  = AQUA_FONT . ',12';
-        $key_font   = AQUA_FONT . ',10';
-        $title_font = AQUA_TITLE_FONT . ' Bold,12';
-        $time_font  = AQUA_FONT . ',9';
-        $dashed     = DASHED;
+        $term_font  = "$AQUA_FONT,12";
+        $key_font   = "$AQUA_FONT,10";
+        $title_font = "$AQUA_TITLE_FONT Bold,12";
+        $time_font  = "$AQUA_FONT,9";
+        $dashed     = $DASHED;
         $terminal =
           qq|aqua title "$term_title" font "$term_font" $dashed size "946,594"|;
     }
     elsif ( $term eq 'png' ) {
-        $term_font  = PNG_FONT . ',9';
-        $key_font   = PNG_FONT . ',7';
-        $title_font = PNG_TITLE_FONT . ',14';
-        $time_font  = PNG_FONT . ',7';
-        $dashed     = DASHED;
+        $term_font  = "$PNG_FONT,9";
+        $key_font   = "$PNG_FONT,7";
+        $title_font = "$PNG_TITLE_FONT,14";
+        $time_font  = "$PNG_FONT,7";
+        $dashed     = $DASHED;
         $terminal   = qq|pngcairo font "$term_font" $dashed|;
         $outfile    = substr( $race_id, 0, 3 ) . '-race-lap-diff.png';
         $output     = catdir( $outdir, $outfile );
@@ -336,7 +336,7 @@ sub get_db_source
         $src = $env_file;
     }
     else {
-        $src = DB_PATH;
+        $src = $DB_PATH;
     }
 
     return $src;
@@ -346,7 +346,7 @@ sub db_connect
 {
     my $db_source = 'dbi:SQLite:dbname=' . get_db_source;
 
-    return connection_factory( $db_source, DB_USER, DB_PWD );
+    return connection_factory( $db_source, $DB_USER, $DB_PWD );
 }
 
 sub connection_factory
@@ -533,19 +533,19 @@ sub get_term_table
             $term_href = {
                 aqua => {
                     type       => 'aqua',
-                    term_font  => AQUA_FONT . ',12',
-                    key_font   => AQUA_FONT . ',10',
-                    title_font => AQUA_TITLE_FONT . ' Bold,12',
-                    time_font  => AQUA_FONT . ',9',
-                    dash       => DASHED,
+                    term_font  => "$AQUA_FONT,12",
+                    key_font   => "$AQUA_FONT,10",
+                    title_font => "$AQUA_TITLE_FONT Bold,12",
+                    time_font  => "$AQUA_FONT,9",
+                    dash       => $DASHED,
                 },
                 png => {
                     type       => 'pngcairo',
-                    term_font  => PNG_FONT . ',9',
-                    key_font   => PNG_FONT . ',7',
-                    title_font => PNG_TITLE_FONT . ',14',
-                    time_font  => PNG_FONT . ',7',
-                    dash       => DASHED,
+                    term_font  => "$PNG_FONT,9",
+                    key_font   => "$PNG_FONT,7",
+                    title_font => "$PNG_TITLE_FONT,14",
+                    time_font  => "$PNG_FONT,7",
+                    dash       => $DASHED,
                 },
             };
         }
