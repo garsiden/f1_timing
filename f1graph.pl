@@ -6,6 +6,7 @@ use Chart::Gnuplot;
 use Getopt::Long;
 use Pod::Usage;
 use File::Spec::Functions qw(:DEFAULT splitpath );
+use Hash::Merge qw(merge);
 
 use strict;
 use warnings;
@@ -26,7 +27,7 @@ use constant DB_USER => q{};
 use constant AQUA_FONT       => 'Andale Mono';
 use constant AQUA_TITLE_FONT => 'Verdana';
 use constant PNG_FONT        => 'Monaco';
-use constant PNG_TITLE_FONT  => "Vera, 12";
+use constant PNG_TITLE_FONT  => "Vera";
 use constant DASHED          => 'dashed';        # solid|dashed
 
 # database session handle
@@ -173,8 +174,8 @@ TIMES
     }
 
     # Create chart object and specify the properties of the chart
-    my $base_options = $GR->{options};
-    my %options      = (
+    my $base_opts = $GR->{options};
+    my %cust_opts      = (
         terminal => $terminal,
         title    => {
             text => $title,
@@ -188,10 +189,11 @@ TIMES
     );
 
     # merge option hashes
-    @options{ keys %$base_options } = values %$base_options;
+    # my %options = %{ merge( $base_opts, \%cust_opts ) };
+    my $options = merge( $base_opts, \%cust_opts );
 
     # create and plot chart
-    my $chart = Chart::Gnuplot->new(%options);
+    my $chart = Chart::Gnuplot->new(%$options);
     $chart->{output} = $output if $output;
     $chart->plot2d(@datasets);
 }
