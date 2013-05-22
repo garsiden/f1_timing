@@ -99,7 +99,7 @@ elsif ($version) { print "$0 v$VERSION}\n"; exit }
 # closures for tables
 my $term_tab  = get_term_table();
 my $graph_tab = get_graph_table();
-const my $GR  => &$graph_tab->{$graph};
+my $GR  = &$graph_tab->{$graph};
 
 # run graphing sub
 $GR->{grapher}($race_id);
@@ -115,6 +115,7 @@ sub race_lap_times
     # get race classification
     my $race_class = race_class($race_id);
     my $laps       = $race_class->[0]{laps};
+    print Dumper $race_class;
 
     my $times = <<'TIMES';
 SELECT secs
@@ -161,6 +162,81 @@ TIMES
     $chart->plot2d(@datasets);
 }
 
+sub get_race_data
+{
+    my $race_id = shift;
+    my $dbh     = $db_session->();
+
+    my $sql = <<'SQL';
+SELECT fuel_consumption_kg, fuel_effect_10kg, fuel_total_kg
+FROM race_data
+WHERE race_id=?
+SQL
+
+    my $data = $dbh->selectrow_hashref( $sql, { }, $race_id );
+
+    print Dumper $data;
+    return $data;
+}
+
+sub race_lap_times_fuel_adj
+{
+    my $race_id = shift;
+
+    # get race classification
+    my $race_class = race_class($race_id);
+    my $laps       = $race_class->[0]{laps};
+
+    # get race data
+    my $data = get_race_data($race_id);
+    my $adj_per_lap= $data->{fuel_effect_10kg} / 10 * $data->{fuel_consumption_kg};
+
+    my $times = <<'TIMES';
+SELECT secs
+FROM race_lap_sec
+WHERE no=? AND race_id=?
+ORDER BY lap
+TIMES
+
+    # get lap times for classified drivers
+    my $dbh = $db_session->();
+    my $sth = $dbh->prepare($times);
+
+    my @datasets;
+    foreach ( @$race_class[ 0 .. 9 ] ) {
+        my $no   = $_->{no};
+        my $nlaps = $laps;
+        my $time = $dbh->selectcol_arrayref(
+            $sth,
+            { Columns => [1] },
+            ( $no, $race_id )
+        );
+
+        my @adjusted = map { $_ - $adj_per_lap * --$nlaps} @$time; 
+        # create dataset
+        my $ds = Chart::Gnuplot::DataSet->new(
+            xdata    => [ 1 .. scalar @adjusted ],
+            ydata    => \@adjusted,
+            title    => substr( $_->{driver}, 3 ),
+            style    => "lines",
+            color    => $COLOURS{$no},
+            linetype => line_type($no),
+            width    => 1,
+        );
+        push @datasets, $ds;
+    }
+
+    $sth->finish;
+
+    # Set any chart dataset options
+    my %cust_opts      = (
+        xrange    => [ 1, $laps ],
+    );
+
+    # create and plot chart
+    my $chart = create_chart(\%cust_opts);
+    $chart->plot2d(@datasets);
+}
 sub race_lap_diff
 {
     my $race_id = shift;
@@ -422,9 +498,39 @@ sub get_graph_table
                     }
                 },
                 'race-lap-times' => {
-                    title   => 'Test Lap Times',
-                    grapher => \&race_lap_times2,
+                    title   => 'Race Lap Times',
+                    grapher => \&race_lap_times,
                     output  => 'race-lap-times',
+                    options => {
+                        bg     => 'white',
+                        ylabel => "Time (secs)",
+                        xlabel => "Lap",
+                        ytics  => {
+                            labelfmt => "%5.3f",
+                        },
+                        grid => {
+                            linetype => 'dash',
+                            xlines   => 'off',
+                            ylines   => 'on',
+                            color    => 'grey',
+                            width    => 1,
+                        },
+                        yrange => '[] reverse',
+                        legend => {
+                            position => 'outside',
+                            align    => 'left',
+                            title    => 'Key',
+                        },
+                        timestamp => {
+                            fmt => '%a, %d %b %Y %H:%M:%S',
+                        },
+                        imagesize => '900,600',
+                    },
+                },
+                'race-lap-times-fuel-adj' => {
+                    title   => 'Race Lap Times (Fuel Adjusted)',
+                    grapher => \&race_lap_times_fuel_adj,
+                    output  => 'race-lap-times-fuel_adj',
                     options => {
                         bg     => 'white',
                         ylabel => "Time (secs)",
