@@ -29,11 +29,7 @@ const my $AQUA_TITLE_FONT => 'Verdana';
 const my $PNG_FONT        => 'Monaco';
 const my $PNG_TITLE_FONT  => "Vera";
 const my $DASHED          => 'dashed';        # solid|dashed
-
-# database session handle
-my $db_session = db_connect();
-
-const my %COLOURS => (
+const my %COLOURS         => (
     1,  "#020138", 2,  "#485184", 3,  "#B80606", 4,  "#B80606", 5,  "#B7BACC",
     6,  "#D0D7DF", 7,  "#F8A62D", 8,  "#F9D61A", 9,  "#72A5A6", 10, "#A7C8C9",
     11, "#646564", 12, "#989898", 14, "#B2C61B", 15, "#D6E741", 16, "#3F62A6",
@@ -42,6 +38,9 @@ const my %COLOURS => (
 );
 
 const my $VERSION => '20130513';
+
+# database session handle
+my $db_session = db_connect();
 
 # command line option variables
 my $race_id = undef;
@@ -98,9 +97,9 @@ elsif ($man) { pod2usage( -verbose => 2 ) }
 elsif ($version) { print "$0 v$VERSION}\n"; exit }
 
 # closures for tables
-my $graph_tab = get_graph_table();
-my $GR        = &$graph_tab->{$graph};
 my $term_tab  = get_term_table();
+my $graph_tab = get_graph_table();
+const my $GR  => &$graph_tab->{$graph};
 
 # run graphing sub
 $GR->{grapher}($race_id);
@@ -152,49 +151,13 @@ TIMES
 
     $sth->finish;
 
-    # get race hash
-    my $race = get_race($race_id);
-
-    # titles for graph and terminal window
-    my $year  = ( localtime $race->{epoch} )[5] + 1900;
-    my $title = "$race->{gp} Grand Prix $year \\nLap Times";
-
-    # set up required terminal & output
-    my $tm       = &$term_tab->{$term};
-    my $terminal = qq|$tm->{type} font "$tm->{term_font}" $tm->{dash}|;
-    my $output   = undef;
-
-    if ( $term eq 'aqua' ) {
-        ( my $term_title = $title ) =~ s/\\n/ - /;
-        $terminal .= qq| title "$term_title"|;
-    }
-    elsif ( $term = 'png' ) {
-        my $outfile = substr( $race_id, 0, 3 ) . "-$GR->{output}.png";
-        $output = catdir( $outdir, $outfile );
-    }
-
-    # Create chart object and specify the properties of the chart
-    my $base_opts = $GR->{options};
+    # Set any chart dataset options
     my %cust_opts      = (
-        terminal => $terminal,
-        title    => {
-            text => $title,
-            font => $tm->{title_font},
-        },
         xrange    => [ 1, $laps ],
-        key       => qq|font "$tm->{key_font}"|,
-        timestamp => {
-            font => $tm->{time_font},
-        },
     );
 
-    # merge option hashes
-    # my %options = %{ merge( $base_opts, \%cust_opts ) };
-    my $options = merge( $base_opts, \%cust_opts );
-
     # create and plot chart
-    my $chart = Chart::Gnuplot->new(%$options);
-    $chart->{output} = $output if $output;
+    my $chart = create_chart(\%cust_opts);
     $chart->plot2d(@datasets);
 }
 
@@ -251,77 +214,45 @@ TIMES
 
     # titles for graph and terminal window
     my $year  = ( localtime $race->{epoch} )[5] + 1900;
-    my $title = "$race->{gp} Grand Prix $year \\nRace Lap Differences";
+    my $title = "$race->{gp} Grand Prix $year \\n$GR->{title}";
 
-    ( my $term_title = $title ) =~ s/\\n/ - /;
-
-    # set up required terminal
-    my ( $terminal, $term_font, $key_font, $title_font, $time_font, $dashed );
-    my $outfile;
-    my $output = undef;
+    # set up required terminal & output
+    my $tm       = &$term_tab->{$term};
+    my $terminal = qq|$tm->{type} font "$tm->{term_font}" $tm->{dash}|;
+    my $output   = undef;
 
     if ( $term eq 'aqua' ) {
-        $term_font  = "$AQUA_FONT,12";
-        $key_font   = "$AQUA_FONT,10";
-        $title_font = "$AQUA_TITLE_FONT Bold,12";
-        $time_font  = "$AQUA_FONT,9";
-        $dashed     = $DASHED;
-        $terminal =
-          qq|aqua title "$term_title" font "$term_font" $dashed size "946,594"|;
+        ( my $term_title = $title ) =~ s/\\n/ - /;
+        $terminal .= qq| title "$term_title"|;
     }
-    elsif ( $term eq 'png' ) {
-        $term_font  = "$PNG_FONT,9";
-        $key_font   = "$PNG_FONT,7";
-        $title_font = "$PNG_TITLE_FONT,14";
-        $time_font  = "$PNG_FONT,7";
-        $dashed     = $DASHED;
-        $terminal   = qq|pngcairo font "$term_font" $dashed|;
-        $outfile    = substr( $race_id, 0, 3 ) . '-race-lap-diff.png';
-        $output     = catdir( $outdir, $outfile );
-    }
-    else {
-        die "Terminal type '$term' not recognized\n";
+    elsif ( $term = 'png' ) {
+        my $outfile = substr( $race_id, 0, 3 ) . "-$GR->{output}.png";
+        $output = catdir( $outdir, $outfile );
     }
 
     # Create chart object and specify the properties of the chart
-    my $chart = Chart::Gnuplot->new(
+    my $base_opts = $GR->{options};
+    my %cust_opts      = (
         terminal => $terminal,
-        bg       => 'white',
         title    => {
             text => $title,
-            font => $title_font,
-        },
-        ylabel => "Difference (secs)",
-        xlabel => "Lap",
-        ytics  => {
-            labelfmt => "%5.3f",
-        },
-        grid => {
-            linetype => 'dash',
-            xlines   => 'off',
-            ylines   => 'on',
-            color    => 'grey',
-            width    => 1,
+            font => $tm->{title_font},
         },
         xrange => [ 1, $laps ],
-        legend => {
-            position => 'outside',
-            align    => 'left',
-            title    => 'Key',
-        },
-        imagesize => "1000,600",
         timestamp => {
-            fmt  => '%a, %d %b %Y %H:%M:%S',
-            font => $time_font,
+            font => $tm->{time_font},
         },
-        key => qq|font "$key_font"|,
     );
 
+    # merge option hashes
+    my $options = merge( $base_opts, \%cust_opts );
+
+    # create and plot chart
+    my $chart = Chart::Gnuplot->new(%$options);
     $chart->{output} = $output if $output;
     $chart->plot2d(@datasets);
 
     # $chart->convert('pdf');
-
 }
 
 # DATABASE
@@ -462,13 +393,37 @@ sub get_graph_table
         unless ($graph_href) {
             $graph_href = {
                 'race-lap-diff' => {
-                    title   => 'My Title',
+                    title   => 'Race Lap Differences',
                     grapher => \&race_lap_diff,
                     output  => 'race-lap-diff',
+                    options => {
+                        bg     => 'white',
+                        ylabel => "Difference (secs)",
+                        xlabel => "Lap",
+                        ytics  => {
+                            labelfmt => "%5.3f",
+                        },
+                        grid => {
+                            linetype => 'dash',
+                            xlines   => 'off',
+                            ylines   => 'on',
+                            color    => 'grey',
+                            width    => 1,
+                        },
+                        legend => {
+                            position => 'outside',
+                            align    => 'left',
+                            title    => 'Key',
+                        },
+                        timestamp => {
+                            fmt => '%a, %d %b %Y %H:%M:%S',
+                        },
+                        imagesize => '900,600',
+                    }
                 },
                 'race-lap-times' => {
-                    title   => 'My Title',
-                    grapher => \&race_lap_times,
+                    title   => 'Test Lap Times',
+                    grapher => \&race_lap_times2,
                     output  => 'race-lap-times',
                     options => {
                         bg     => 'white',
@@ -550,6 +505,55 @@ sub get_term_table
             };
         }
     };
+}
+
+sub create_chart
+{
+    my ($opts)  = @_;
+
+    # get race hash
+    my $race = get_race($race_id);
+
+    # titles for graph and terminal window
+    my $year  = ( localtime $race->{epoch} )[5] + 1900;
+    my $title = "$race->{gp} Grand Prix $year \\n$GR->{title}";
+
+    # set up required terminal & output
+    my $tm       = &$term_tab->{$term};
+    my $terminal = qq|$tm->{type} font "$tm->{term_font}" $tm->{dash}|;
+    my $output   = undef;
+
+    if ( $term eq 'aqua' ) {
+        ( my $term_title = $title ) =~ s/\\n/ - /;
+        $terminal .= qq| title "$term_title"|;
+    }
+    elsif ( $term = 'png' ) {
+        my $outfile = substr( $race_id, 0, 3 ) . "-$GR->{output}.png";
+        $output = catdir( $outdir, $outfile );
+    }
+
+    # Create chart object and specify the properties of the chart
+    my $base_opts = $GR->{options};
+    my %cust_opts      = (
+        terminal => $terminal,
+        title    => {
+            text => $title,
+            font => $tm->{title_font},
+        },
+        key       => qq|font "$tm->{key_font}"|,
+        timestamp => {
+            font => $tm->{time_font},
+        },
+    );
+
+    # merge option hashes
+    my $options = merge( $base_opts, \%cust_opts );
+    @$options{keys %$opts} = values %$opts;
+    # create
+    my $chart = Chart::Gnuplot->new(%$options);
+    $chart->{output} = $output if $output;
+
+    return $chart;
 }
 
 END { $db_session->()->disconnect }
