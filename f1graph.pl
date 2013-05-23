@@ -43,11 +43,11 @@ const my $VERSION => '20130513';
 my $db_session = db_connect();
 
 # command line option variables
-my $race_id = undef;
-my $term    = undef;
-my $graph   = undef;
-my $outdir  = undef;
-my $version = 0;
+my $race_id  = undef;
+my $term_id  = undef;
+my $graph_id = undef;
+my $outdir   = undef;
+my $version  = 0;
 
 # TODO
 my $season  = undef;
@@ -60,11 +60,11 @@ Getopt::Long::Configure qw( no_auto_abbrev bundling);
 GetOptions(
     'race-id=s' => \$race_id,
     'r=s'       => \$race_id,
-    'term=s'    => \$term,
-    't=s'       => \$term,
-    'graph=s'   => \$graph,
-    'g=s'       => \$graph,
-    'o=s'       => \$graph,
+    'term=s'    => \$term_id,
+    't=s'       => \$term_id,
+    'graph=s'   => \$graph_id,
+    'g=s'       => \$graph_id,
+    'o=s'       => \$outdir,
     'outdir=s'  => \$outdir,
     'version'   => \$version,
 
@@ -81,7 +81,7 @@ GetOptions(
 # Process command-line arguments
 #
 # use default options if none specified
-$term    ||= 'aqua';
+$term_id ||= 'aqua';
 $outdir  ||= $GRAPH_DIR;
 $season  ||= (localtime)[5] + 1900;
 $race_id ||= get_current_race()->{id};
@@ -99,10 +99,10 @@ elsif ($version) { print "$0 v$VERSION}\n"; exit }
 # closures for tables
 my $term_tab  = get_term_table();
 my $graph_tab = get_graph_table();
-my $GR  = &$graph_tab->{$graph};
+my $graph     = &$graph_tab->{$graph_id};
 
 # run graphing sub
-$GR->{grapher}($race_id);
+$graph->{grapher}($race_id);
 
 # TODO
 # see if possible to make last x axis tick no of race laps
@@ -115,9 +115,8 @@ sub race_lap_times
     # get race classification
     my $race_class = race_class($race_id);
     my $laps       = $race_class->[0]{laps};
-    print Dumper $race_class;
 
-    my $times = <<'TIMES';
+    my $time_sql = <<'TIMES';
 SELECT secs
 FROM race_lap_sec
 WHERE no=? AND race_id=?
@@ -126,7 +125,7 @@ TIMES
 
     # get lap times for classified drivers
     my $dbh = $db_session->();
-    my $sth = $dbh->prepare($times);
+    my $sth = $dbh->prepare($time_sql);
 
     my @datasets;
     foreach ( @$race_class[ 0 .. 9 ] ) {
@@ -152,31 +151,12 @@ TIMES
 
     $sth->finish;
 
-    # Set any chart dataset options
-    my %cust_opts      = (
-        xrange    => [ 1, $laps ],
-    );
+    # set any chart dataset options
+    my $cust_opts = { xrange => [ 1, $laps ], };
 
     # create and plot chart
-    my $chart = create_chart(\%cust_opts);
+    my $chart = create_chart($cust_opts);
     $chart->plot2d(@datasets);
-}
-
-sub get_race_data
-{
-    my $race_id = shift;
-    my $dbh     = $db_session->();
-
-    my $sql = <<'SQL';
-SELECT fuel_consumption_kg, fuel_effect_10kg, fuel_total_kg
-FROM race_data
-WHERE race_id=?
-SQL
-
-    my $data = $dbh->selectrow_hashref( $sql, { }, $race_id );
-
-    print Dumper $data;
-    return $data;
 }
 
 sub race_lap_times_fuel_adj
@@ -189,7 +169,8 @@ sub race_lap_times_fuel_adj
 
     # get race data
     my $data = get_race_data($race_id);
-    my $adj_per_lap= $data->{fuel_effect_10kg} / 10 * $data->{fuel_consumption_kg};
+    my $adj_per_lap =
+      $data->{fuel_effect_10kg} / 10 * $data->{fuel_consumption_kg};
 
     my $times = <<'TIMES';
 SELECT secs
@@ -204,15 +185,16 @@ TIMES
 
     my @datasets;
     foreach ( @$race_class[ 0 .. 9 ] ) {
-        my $no   = $_->{no};
+        my $no    = $_->{no};
         my $nlaps = $laps;
-        my $time = $dbh->selectcol_arrayref(
+        my $time  = $dbh->selectcol_arrayref(
             $sth,
             { Columns => [1] },
             ( $no, $race_id )
         );
 
-        my @adjusted = map { $_ - $adj_per_lap * --$nlaps} @$time; 
+        my @adjusted = map { $_ - $adj_per_lap * --$nlaps } @$time;
+
         # create dataset
         my $ds = Chart::Gnuplot::DataSet->new(
             xdata    => [ 1 .. scalar @adjusted ],
@@ -229,14 +211,13 @@ TIMES
     $sth->finish;
 
     # Set any chart dataset options
-    my %cust_opts      = (
-        xrange    => [ 1, $laps ],
-    );
+    my $cust_opts = { xrange => [ 1, $laps ], };
 
     # create and plot chart
-    my $chart = create_chart(\%cust_opts);
+    my $chart = create_chart($cust_opts);
     $chart->plot2d(@datasets);
 }
+
 sub race_lap_diff
 {
     my $race_id = shift;
@@ -285,50 +266,12 @@ TIMES
     }
     $sth->finish;
 
-    # get race hash
-    my $race = get_race($race_id);
-
-    # titles for graph and terminal window
-    my $year  = ( localtime $race->{epoch} )[5] + 1900;
-    my $title = "$race->{gp} Grand Prix $year \\n$GR->{title}";
-
-    # set up required terminal & output
-    my $tm       = &$term_tab->{$term};
-    my $terminal = qq|$tm->{type} font "$tm->{term_font}" $tm->{dash}|;
-    my $output   = undef;
-
-    if ( $term eq 'aqua' ) {
-        ( my $term_title = $title ) =~ s/\\n/ - /;
-        $terminal .= qq| title "$term_title"|;
-    }
-    elsif ( $term = 'png' ) {
-        my $outfile = substr( $race_id, 0, 3 ) . "-$GR->{output}.png";
-        $output = catdir( $outdir, $outfile );
-    }
-
-    # Create chart object and specify the properties of the chart
-    my $base_opts = $GR->{options};
-    my %cust_opts      = (
-        terminal => $terminal,
-        title    => {
-            text => $title,
-            font => $tm->{title_font},
-        },
-        xrange => [ 1, $laps ],
-        timestamp => {
-            font => $tm->{time_font},
-        },
-    );
-
-    # merge option hashes
-    my $options = merge( $base_opts, \%cust_opts );
+    # set any chart dataset options
+    my $cust_opts = { xrange => [ 1, $laps ], };
 
     # create and plot chart
-    my $chart = Chart::Gnuplot->new(%$options);
-    $chart->{output} = $output if $output;
+    my $chart = create_chart($cust_opts);
     $chart->plot2d(@datasets);
-
-    # $chart->convert('pdf');
 }
 
 # DATABASE
@@ -584,6 +527,22 @@ DRIVERS
     return \%drivers;
 }
 
+sub get_race_data
+{
+    my $race_id = shift;
+    my $dbh     = $db_session->();
+
+    my $sql = <<'SQL';
+SELECT fuel_consumption_kg, fuel_effect_10kg, fuel_total_kg
+FROM race_data
+WHERE race_id=?
+SQL
+
+    my $data = $dbh->selectrow_hashref( $sql, {}, $race_id );
+
+    return $data;
+}
+
 sub get_term_table
 {
     my $term_href;
@@ -615,32 +574,32 @@ sub get_term_table
 
 sub create_chart
 {
-    my ($opts)  = @_;
+    my ($cust_opts) = @_;
 
     # get race hash
     my $race = get_race($race_id);
 
     # titles for graph and terminal window
     my $year  = ( localtime $race->{epoch} )[5] + 1900;
-    my $title = "$race->{gp} Grand Prix $year \\n$GR->{title}";
+    my $title = "$race->{gp} Grand Prix $year \\n$graph->{title}";
 
     # set up required terminal & output
     my $tm       = &$term_tab->{$term};
     my $terminal = qq|$tm->{type} font "$tm->{term_font}" $tm->{dash}|;
     my $output   = undef;
 
-    if ( $term eq 'aqua' ) {
+    if ( $term_id eq 'aqua' ) {
         ( my $term_title = $title ) =~ s/\\n/ - /;
         $terminal .= qq| title "$term_title"|;
     }
-    elsif ( $term = 'png' ) {
-        my $outfile = substr( $race_id, 0, 3 ) . "-$GR->{output}.png";
+    elsif ( $term_id = 'png' ) {
+        my $outfile = substr( $race_id, 0, 3 ) . "-$graph->{output}.png";
         $output = catdir( $outdir, $outfile );
     }
 
     # Create chart object and specify the properties of the chart
-    my $base_opts = $GR->{options};
-    my %cust_opts      = (
+    my $base_opts = $graph->{options};
+    my $var_opts  = {
         terminal => $terminal,
         title    => {
             text => $title,
@@ -650,11 +609,11 @@ sub create_chart
         timestamp => {
             font => $tm->{time_font},
         },
-    );
+    };
 
     # merge option hashes
-    my $options = merge( $base_opts, \%cust_opts );
-    @$options{keys %$opts} = values %$opts;
+    my $options = merge( merge( $base_opts, $var_opts ), $cust_opts );
+
     # create
     my $chart = Chart::Gnuplot->new(%$options);
     $chart->{output} = $output if $output;
