@@ -1,0 +1,48 @@
+# options defaults
+options: &options
+    legend: &legend
+        position: outside
+        align: left
+        title: Key
+    grid: &grid
+        linetype: dash
+        xlines: off
+        ylines: on
+        color: grey
+        width: 1
+    ytics: &ytics
+      labelfmt: "%5.3f"
+    timestamp: &timestamp
+        fmt: '%a, %d %b %Y %H:%M:%S'
+    imagesize: '900,600' 
+    bg: white
+
+# Graphs
+race_lap_diff:
+    title: Race Lap Differences
+    grapher: race_lap_diff
+    output: race-lap-diff
+    options:
+        <<: *options
+        xlabel: Lap
+        ylabel: Difference (secs)
+
+race_lap_times:
+    title: Race Lap Times
+    grapher: race_lap_times
+    output: race-lap-times
+    options:
+        <<: *options
+        xlabel: Lap
+        ylabel: Difference (secs)
+        yrange: '[] reverse'
+
+race_lap_times_fuel_adj:
+    title: Race Lap Times (Fuel Adjusted)
+    grapher: race_lap_times_fuel_adj
+    output: race-lap-times-fuel-adj
+    options:
+        <<: *options
+        xlabel: Lap
+        ylabel: Time (secs)
+        yrange: '[] reverse'

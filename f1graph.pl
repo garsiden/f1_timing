@@ -8,6 +8,7 @@ use Pod::Usage;
 use File::Spec::Functions qw(:DEFAULT splitpath );
 use Hash::Merge qw(merge);
 use Const::Fast;
+use YAML::XS qw(LoadFile);
 
 use strict;
 use warnings;
@@ -17,6 +18,7 @@ use 5.012;
 const my $SEASON    => '2013';
 const my $DOCS_DIR  => "$ENV{HOME}/Documents/F1";
 const my $GRAPH_DIR => "$DOCS_DIR/$SEASON/Graphs";
+const my $YAML      => 'f1graphs.yaml';
 
 # database constants
 const my $DB_PATH => "$DOCS_DIR/$SEASON/db/f1_timing.db";
@@ -37,7 +39,7 @@ const my %COLOURS         => (
     22, "#ED528A", 23, "#F5AAC4",
 );
 
-const my $VERSION => '20130513';
+const my $VERSION => '20130525';
 
 # database session handle
 my $db_session = db_connect();
@@ -97,14 +99,18 @@ elsif ($man) { pod2usage( -verbose => 2 ) }
 elsif ($version) { print "$0 v$VERSION}\n"; exit }
 
 # closures for tables
-my $term_tab  = get_term_table();
-my $graph_tab = get_graph_table();
-my $graph     = &$graph_tab->{$graph_id};
+my $term_tab   = get_term_table();
+my $graph_yaml = get_yaml_specs();
 
-# run graphing sub
-$graph->{grapher}($race_id);
+# get & run graphing sub
+$graph_id =~ s/-/_/g;
+const my $GRAPH => &$graph_yaml()->{$graph_id};
+# my $grapher = \&{ $graph_yaml->(){$graph_id}{grapher} };
+my $grapher = \&{ $GRAPH->{grapher} };
+$grapher->($race_id);
 
 # TODO
+# verify cmd line options e.g., race-id with season
 # see if possible to make last x axis tick no of race laps
 # title from database
 
@@ -404,108 +410,6 @@ sub get_current_race
     return $href;
 }
 
-sub get_graph_table
-{
-    my $graph_href;
-
-    return sub {
-        unless ($graph_href) {
-            $graph_href = {
-                'race-lap-diff' => {
-                    title   => 'Race Lap Differences',
-                    grapher => \&race_lap_diff,
-                    output  => 'race-lap-diff',
-                    options => {
-                        bg     => 'white',
-                        ylabel => "Difference (secs)",
-                        xlabel => "Lap",
-                        ytics  => {
-                            labelfmt => "%5.3f",
-                        },
-                        grid => {
-                            linetype => 'dash',
-                            xlines   => 'off',
-                            ylines   => 'on',
-                            color    => 'grey',
-                            width    => 1,
-                        },
-                        legend => {
-                            position => 'outside',
-                            align    => 'left',
-                            title    => 'Key',
-                        },
-                        timestamp => {
-                            fmt => '%a, %d %b %Y %H:%M:%S',
-                        },
-                        imagesize => '900,600',
-                    }
-                },
-                'race-lap-times' => {
-                    title   => 'Race Lap Times',
-                    grapher => \&race_lap_times,
-                    output  => 'race-lap-times',
-                    options => {
-                        bg     => 'white',
-                        ylabel => "Time (secs)",
-                        xlabel => "Lap",
-                        ytics  => {
-                            labelfmt => "%5.3f",
-                        },
-                        grid => {
-                            linetype => 'dash',
-                            xlines   => 'off',
-                            ylines   => 'on',
-                            color    => 'grey',
-                            width    => 1,
-                        },
-                        yrange => '[] reverse',
-                        legend => {
-                            position => 'outside',
-                            align    => 'left',
-                            title    => 'Key',
-                        },
-                        timestamp => {
-                            fmt => '%a, %d %b %Y %H:%M:%S',
-                        },
-                        imagesize => '900,600',
-                    },
-                },
-                'race-lap-times-fuel-adj' => {
-                    title   => 'Race Lap Times (Fuel Adjusted)',
-                    grapher => \&race_lap_times_fuel_adj,
-                    output  => 'race-lap-times-fuel_adj',
-                    options => {
-                        bg     => 'white',
-                        ylabel => "Time (secs)",
-                        xlabel => "Lap",
-                        ytics  => {
-                            labelfmt => "%5.3f",
-                        },
-                        grid => {
-                            linetype => 'dash',
-                            xlines   => 'off',
-                            ylines   => 'on',
-                            color    => 'grey',
-                            width    => 1,
-                        },
-                        yrange => '[] reverse',
-                        legend => {
-                            position => 'outside',
-                            align    => 'left',
-                            title    => 'Key',
-                        },
-                        timestamp => {
-                            fmt => '%a, %d %b %Y %H:%M:%S',
-                        },
-                        imagesize => '900,600',
-                    },
-                },
-            };
-            return $graph_href;
-        }
-    };
-}
-
 sub get_drivers
 {
     my $race_id = shift;
@@ -581,10 +485,10 @@ sub create_chart
 
     # titles for graph and terminal window
     my $year  = ( localtime $race->{epoch} )[5] + 1900;
-    my $title = "$race->{gp} Grand Prix $year \\n$graph->{title}";
+    my $title = "$race->{gp} Grand Prix $year \\n$GRAPH->{title}";
 
     # set up required terminal & output
-    my $tm       = &$term_tab->{$term};
+    my $tm       = &$term_tab->{$term_id};
     my $terminal = qq|$tm->{type} font "$tm->{term_font}" $tm->{dash}|;
     my $output   = undef;
 
@@ -593,12 +497,12 @@ sub create_chart
         $terminal .= qq| title "$term_title"|;
     }
     elsif ( $term_id = 'png' ) {
-        my $outfile = substr( $race_id, 0, 3 ) . "-$graph->{output}.png";
+        my $outfile = substr( $race_id, 0, 3 ) . "-$GRAPH->{output}.png";
         $output = catdir( $outdir, $outfile );
     }
 
     # Create chart object and specify the properties of the chart
-    my $base_opts = $graph->{options};
+    my $base_opts = $GRAPH->{options};
     my $var_opts  = {
         terminal => $terminal,
         title    => {
@@ -620,5 +524,95 @@ sub create_chart
 
     return $chart;
 }
+
+sub get_yaml_specs
+{
+    my $spec_href;
+
+    return sub {
+        unless ($spec_href) {
+            $spec_href = LoadFile $YAML;
+            mergekeys($spec_href);
+        }
+    };
+}
+
+sub mergekeys
+{
+    return _mergekeys( $_[0], [] );
+}
+
+# http://www.perlmonks.org/?node_id=813443
+sub _mergekeys
+{
+    my $ref          = shift;
+    my $resolveStack = shift;
+    my $reftype      = ref $ref;
+
+    # If this hash or array is already on the resolution stack, then
+    # somewhere, a child data structure is trying to inherit from one of its
+    # parents, and hence by extension trying to inherit itself.
+    if ( $reftype =~ /HASH|ARRAY/ and ( grep $_ == $ref, @$resolveStack ) > 0 )
+    {
+        # Halt and catch fire, or store the cyclic reference and not
+        # process it further. Not complaining seems to be the behaviour of
+        # Ruby's YAML parser, so let's go for that.
+
+        # die "Cyclic inheritance detected: "
+        #   . ($ref)
+        #   . " is already on the resolution stack!\n"
+        #   . "Dump of cyclic data structure (may have inheritance already "
+        #   . "partially resolved):\n" . Dumper($ref);
+        return $ref;
+    }
+
+    if ( ref($ref) eq 'HASH' ) {
+
+        push @$resolveStack, $ref;
+
+        if ( exists $ref->{'<<'} ) {
+
+            # can be either a single href, or an array of hrefs
+            my $inherits = $ref->{'<<'};
+
+            # catch edge cases that YAML::XS won't catch, like "<<: &foo"
+            die "Undefined value for merge key '<<' in " . Dumper($ref)
+              unless defined $inherits;
+
+            die "Merge key does not support merging non-hashmaps"
+              unless ref($inherits) =~ /HASH|ARRAY/;
+
+            # normalize for further processing
+            $inherits = [$inherits] if ref($inherits) eq 'HASH';
+
+          # For each of the hashes/arrays we're inheriting, have them
+          # resolve their inheritance first before applying them onto ourselves.
+          # Also, remove the '<<' reference only afterwards, since by
+          # recursion these will have already been removed from our inheritees,
+          # and this also allows us to show the cyclic reference by dumping
+          # out the structure when we detect one.
+            foreach my $inherit (@$inherits) {
+                $inherit = _mergekeys( $inherit, $resolveStack );
+                %$ref = ( %$inherit, %$ref );
+            }
+            delete $ref->{'<<'};
+        }
+
+        _mergekeys( $_, $resolveStack ) for ( values %$ref );
+        die "Fatal error: imbalanced recursion stack in _mergekeys. "
+          . "This likely implies a programming error and/or a YAML file from hell."
+          unless pop(@$resolveStack) eq $ref;
+    }
+    elsif ( ref($ref) eq 'ARRAY' ) {
+        push @$resolveStack, $ref;
+        _mergekeys( $_, $resolveStack ) for (@$ref);
+        die "Fatal error: imbalanced recursion stack in _mergekeys. "
+          . "This likely implies a programming error and/or a YAML file from hell."
+          unless pop(@$resolveStack) eq $ref;
+    }
+
+    return $ref;
+}
+
 
 END { $db_session->()->disconnect }
