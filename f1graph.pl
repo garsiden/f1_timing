@@ -9,8 +9,6 @@ use File::Spec::Functions qw(:DEFAULT splitpath );
 use Hash::Merge qw(merge);
 use Const::Fast;
 use YAML::XS qw(LoadFile);
-use File::Spec;
-use File::Basename;
 
 use strict;
 use warnings;
@@ -41,7 +39,7 @@ const my %COLOURS         => (
     22, "#ED528A", 23, "#F5AAC4",
 );
 
-const my $VERSION => '20130513';
+const my $VERSION => '20130525';
 
 # database session handle
 my $db_session = db_connect();
@@ -101,20 +99,18 @@ elsif ($man) { pod2usage( -verbose => 2 ) }
 elsif ($version) { print "$0 v$VERSION}\n"; exit }
 
 # closures for tables
-my $term_tab  = get_term_table();
+my $term_tab   = get_term_table();
 my $graph_yaml = get_yaml_specs();
 
 # get & run graphing sub
 $graph_id =~ s/-/_/g;
-my $graph     = $graph_yaml->(){$graph_id};
-my $grapher = $graph_yaml->(){$graph_id}{grapher};
-
-{
-   no strict 'refs';
-    &{$grapher}($race_id);
-}
+const my $GRAPH => &$graph_yaml()->{$graph_id};
+# my $grapher = \&{ $graph_yaml->(){$graph_id}{grapher} };
+my $grapher = \&{ $GRAPH->{grapher} };
+$grapher->($race_id);
 
 # TODO
+# verify cmd line options e.g., race-id with season
 # see if possible to make last x axis tick no of race laps
 # title from database
 
@@ -489,7 +485,7 @@ sub create_chart
 
     # titles for graph and terminal window
     my $year  = ( localtime $race->{epoch} )[5] + 1900;
-    my $title = "$race->{gp} Grand Prix $year \\n$graph->{title}";
+    my $title = "$race->{gp} Grand Prix $year \\n$GRAPH->{title}";
 
     # set up required terminal & output
     my $tm       = &$term_tab->{$term_id};
@@ -501,12 +497,12 @@ sub create_chart
         $terminal .= qq| title "$term_title"|;
     }
     elsif ( $term_id = 'png' ) {
-        my $outfile = substr( $race_id, 0, 3 ) . "-$graph->{output}.png";
+        my $outfile = substr( $race_id, 0, 3 ) . "-$GRAPH->{output}.png";
         $output = catdir( $outdir, $outfile );
     }
 
     # Create chart object and specify the properties of the chart
-    my $base_opts = $graph->{options};
+    my $base_opts = $GRAPH->{options};
     my $var_opts  = {
         terminal => $terminal,
         title    => {
@@ -535,11 +531,7 @@ sub get_yaml_specs
 
     return sub {
         unless ($spec_href) {
-
-            my $path = File::Spec->rel2abs(__FILE__);
-            my $yaml = dirname($path) . "/$YAML";
-            my $spec_href = LoadFile $yaml;
-
+            $spec_href = LoadFile $YAML;
             mergekeys($spec_href);
         }
     };
