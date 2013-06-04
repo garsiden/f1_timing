@@ -105,7 +105,6 @@ my $graph_yaml = get_yaml_specs();
 # get & run graphing sub
 $graph_id =~ s/-/_/g;
 const my $GRAPH => &$graph_yaml()->{$graph_id};
-# my $grapher = \&{ $graph_yaml->(){$graph_id}{grapher} };
 my $grapher = \&{ $GRAPH->{grapher} };
 $grapher->($race_id);
 
