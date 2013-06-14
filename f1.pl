@@ -948,7 +948,7 @@ sub get_doc_links
     my %doc_seen;
     my @docs     = ();
     my @patterns = (
-        '.+/.+/([A-Z]{3} Doc.*\.pdf)',
+        '.+/.+/([A-Z]{3} (Doc|DOC).*\.pdf)',
         '.+/.+/(Race.*\.pdf)',
         '.+/.+/((?:Preliminary )?Qualifying.*\.pdf)',
         '.+/.+/(.*Practice.*\.pdf)',
@@ -973,7 +973,7 @@ sub get_doc_links
 
     foreach ( keys %doc_seen ) {
         my $k = $_;
-        if (s/^[A-Z]{3} Doc \d{1,2} //) {
+        if (s/^[A-Z]{3} (Doc|DOC) \d{1,2} //) {
             s/^(P[1-3])/$practice{$1} Practice Session/;
             s/(Qualifying) ([^Ses]{3})/$1 Session $2/;
 s/^(Preliminary) (Qualifying Session|Race) (Classification.pdf)/$2 $1 $3/;
