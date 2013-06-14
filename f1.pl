@@ -446,7 +446,8 @@ sub race_history_chart
                 for my $col (@col_pos) {
                     $width = $col - $prev_col;
                     if ( $prev_col < $len ) {
-                        while ( substr( $_, $prev_col, $width ) =~ /$regex/g ) {
+                        my $substr = substr( $_, $prev_col, $width );
+                        while ( $substr =~ /$regex/g ) {
                             my ( $n, $p, $t );
                             if ($1) {
                                 ( $n, $t ) = ( $1, $3 );
@@ -645,8 +646,8 @@ sub time_sheet
                 for my $col (@col_pos) {
                     $width = $col - $prev_col;
                     if ( $prev_col < $len ) {
-                        while (
-                            substr( $_, $prev_col, $width ) =~ /$laptime_re/g )
+                        my $substr = substr( $_, $prev_col, $width );
+			while ( $substr =~ /$laptime_re/g )
                         {
                             my ( $l, $p ) = ( $1, $2 );
                             my $t;
