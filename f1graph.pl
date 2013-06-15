@@ -9,10 +9,11 @@ use File::Spec::Functions qw(:DEFAULT splitpath );
 use Hash::Merge qw(merge);
 use Const::Fast;
 use YAML::XS qw(LoadFile);
+use local::lib;
 
 use strict;
 use warnings;
-use 5.012;
+use 5.014;
 
 # config constants
 const my $SEASON    => '2013';
@@ -26,8 +27,8 @@ const my $DB_PWD  => q{};
 const my $DB_USER => q{};
 
 # graph global constants
-const my $AQUA_FONT       => 'Andale Mono';
-const my $AQUA_TITLE_FONT => 'Verdana';
+const my $TERM_FONT       => 'Andale Mono';
+const my $TERM_TITLE_FONT => 'Verdana';
 const my $PNG_FONT        => 'Monaco';
 const my $PNG_TITLE_FONT  => "Vera";
 const my $DASHED          => 'dashed';        # solid|dashed
@@ -83,7 +84,7 @@ GetOptions(
 # Process command-line arguments
 #
 # use default options if none specified
-$term_id ||= 'aqua';
+$term_id ||= 'qt';
 $outdir  ||= $GRAPH_DIR;
 $season  ||= (localtime)[5] + 1900;
 $race_id ||= get_current_race()->{id};
@@ -271,6 +272,8 @@ TIMES
     }
     $sth->finish;
 
+    print scalar @{ $datasets[0]{ydata} };
+
     # set any chart dataset options
     my $cust_opts = { xrange => [ 1, $laps ], };
 
@@ -454,12 +457,20 @@ sub get_term_table
         unless ($term_href) {
 
             $term_href = {
-                aqua => {
-                    type       => 'aqua',
-                    term_font  => "$AQUA_FONT,12",
-                    key_font   => "$AQUA_FONT,10",
-                    title_font => "$AQUA_TITLE_FONT Bold,12",
-                    time_font  => "$AQUA_FONT,9",
+                wxt => {
+                    type       => 'wxt',
+                    term_font  => "$TERM_FONT,12",
+                    key_font   => "$TERM_FONT,10",
+                    title_font => "$TERM_TITLE_FONT Bold,12",
+                    time_font  => "$TERM_FONT,9",
+                    dash       => $DASHED,
+                },
+                qt => {
+                    type       => 'qt',
+                    term_font  => "$TERM_FONT,12",
+                    key_font   => "$TERM_FONT,10",
+                    title_font => "$TERM_TITLE_FONT Bold,12",
+                    time_font  => "$TERM_FONT,9",
                     dash       => $DASHED,
                 },
                 png => {
@@ -491,9 +502,13 @@ sub create_chart
     my $terminal = qq|$tm->{type} font "$tm->{term_font}" $tm->{dash}|;
     my $output   = undef;
 
-    if ( $term_id eq 'aqua' ) {
+    if ( $term_id eq 'qt' ) {
         ( my $term_title = $title ) =~ s/\\n/ - /;
-        $terminal .= qq| title "$term_title"|;
+        $terminal .= qq| title "$term_title" persist |;
+    }
+    elsif ( $term_id eq 'wxt' ) {
+        ( my $term_title = $title ) =~ s/\\n/ - /;
+        $terminal .= qq| title "$term_title" close |;
     }
     elsif ( $term_id = 'png' ) {
         my $outfile = substr( $race_id, 0, 3 ) . "-$GRAPH->{output}.png";
@@ -509,9 +524,7 @@ sub create_chart
             font => $tm->{title_font},
         },
         key       => qq|font "$tm->{key_font}"|,
-        timestamp => {
-            font => $tm->{time_font},
-        },
+        timestamp => { font => $tm->{time_font}, },
     };
 
     # merge option hashes
@@ -612,6 +625,5 @@ sub _mergekeys
 
     return $ref;
 }
-
 
 END { $db_session->()->disconnect }
