@@ -1,0 +1,58 @@
+%YAML 1.1
+---
+# terminal defaults
+
+fonts: &term-fonts
+    terminal: &terminal
+        name: Andale Mono
+        size: 12
+    key: &key
+        name: Andale Mono
+        size: 10
+    title: &title
+        name: Verdana Bold
+        size: 12
+    time: &time
+        name: Andale Mono
+        size: 9
+
+fonts: &file-fonts
+    terminal: &terminal
+        name: Monaco
+        size: 9
+    key: &key
+        name: Monaco
+        size: 7
+    title: &title
+        name: Vera
+        size: 14
+    time: &time
+        name: Monaco
+        size: 7
+
+wxt:
+    fonts:
+        <<: *term-fonts
+    dashed: True
+
+qt:
+    fonts:
+        <<: *term-fonts
+    dashed: True
+
+aqua:
+    fonts:
+        <<: *term-fonts
+    dashed: True
+
+# file type terminals
+
+png:
+    fonts:
+        <<: *file-fonts
+    dashed: True
+
+
+
+...
+
