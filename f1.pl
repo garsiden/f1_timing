@@ -150,7 +150,7 @@ sub get_timing
         $race_tab = get_current_race();
     }
 
-    my $page        = lc $race_tab->{page};
+    ( my $page      = lc $race_tab->{page}) =~ s/ /-/g;
     my $docs_dir    = get_docs_dir $season;
     my $race_dir    = catdir( $docs_dir, $race_tab->{id} );
     my $timing_dir  = TIMING_BASE . "f1-$season/f1-$season-$race_tab->{rd}/";
@@ -730,7 +730,7 @@ sub qualifying_classification
       q2_time q2_laps q2_tod q3_time q3_laps q3_tod);
 
     while (<$text>) {
-        last if /POLE POSITION LAP/;
+        last if /POLE POSITION LAP|FASTEST LAP/;
         my %rec;
         if ( @rec{@fields} = /$regex/ ) { push @recs, \%rec }
     }
@@ -829,6 +829,7 @@ sub race_lap_chart
     my @laps;
 
     while (<$text>) {
+        s/Page \d of \d$//;
         if (s/LAP (\d{1,2})//) {
             my $pos;
             push @laps, map { { 'lap', $1, 'no', $_, 'pos', ++$pos } } split;
