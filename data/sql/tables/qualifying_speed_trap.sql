@@ -14,7 +14,7 @@ CREATE TABLE qualifying_speed_trap
     ON DELETE CASCADE,
     UNIQUE (race_id, no),
     CHECK (pos BETWEEN 0 and 25),
-    CHECK (no BETWEEN 0 AND 25)
+    CHECK (no BETWEEN 1 AND 99)
 );
 
 CREATE INDEX IF NOT EXISTS qualifying_speed_trap_race_id_idx ON qualifying_speed_trap (race_id);

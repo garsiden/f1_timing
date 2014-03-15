@@ -10,7 +10,7 @@ CREATE TABLE qualifying_driver
     FOREIGN KEY (race_id) REFERENCES race(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
-    CHECK (no BETWEEN 0 AND 25)
+    CHECK (no BETWEEN 1 AND 99)
 );
 
 CREATE INDEX IF NOT EXISTS qualifying_driver_race_id_idx ON qualifying_driver(race_id);

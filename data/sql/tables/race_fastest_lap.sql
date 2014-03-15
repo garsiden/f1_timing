@@ -19,7 +19,7 @@ CREATE TABLE race_fastest_lap
     ON UPDATE CASCADE
     ON DELETE CASCADE,
     CHECK (pos BETWEEN 0 AND 25),
-    CHECK (no BETWEEN 0 AND 25)
+    CHECK (no BETWEEN 1 AND 99)
 );
 
 CREATE INDEX IF NOT EXISTS race_fastest_lap_race_id_idx ON race_fastest_lap(race_id);

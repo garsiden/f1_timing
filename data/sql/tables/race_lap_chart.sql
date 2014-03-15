@@ -15,7 +15,7 @@ CREATE TABLE race_lap_chart
     ON DELETE CASCADE,
     UNIQUE (race_id, no, lap),
     CHECK (pos BETWEEN 1 and 26),
-    CHECK (no BETWEEN 0 AND 25)
+    CHECK (no BETWEEN 1 AND 99)
 );
 
 CREATE INDEX IF NOT EXISTS race_lap_chart_race_id_idx ON race_lap_chart (race_id);

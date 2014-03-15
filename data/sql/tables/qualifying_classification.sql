@@ -20,7 +20,7 @@ CREATE TABLE qualifying_classification
     ON UPDATE CASCADE
     ON DELETE CASCADE,
     UNIQUE (race_id, pos),
-    CHECK (no BETWEEN 0 AND 25)
+    CHECK (no BETWEEN 1 AND 99)
 );
 
 CREATE INDEX IF NOT EXISTS qualifying_classification_race_id_idx ON qualifying_classification(race_id);
