@@ -15,7 +15,7 @@ use strict;
 use warnings;
 
 # config constants
-use constant SEASON      => '2013';
+use constant SEASON      => '2014';
 use constant DOCS_DIR    => "$ENV{HOME}/Documents/F1/";
 use constant CONVERTER   => 'pdftotext';
 use constant CONVERT_OPT => '-layout';
@@ -24,7 +24,7 @@ use constant EXPORT_OPT  => '-csv -header';
 use constant TIMING_BASE => 'http://184.106.145.74/f1-championship/';
 use constant FIA_BASE =>
   'http://www.fia.com/championship/fia-formula-1-world-championship/';
-use constant FIA_SUFFIX => 'grand-prix-event-information';
+use constant FIA_SUFFIX => 'grand-prix-event-documents';
 use constant USER_AGENT =>
   'Mozilla/5.0 (Macintosh; U; PPC Mac OS X 10.4; en-US; rv:1.9.2.10) '
   . 'Gecko/20100914 Firefox/3.6.10';
@@ -40,6 +40,9 @@ use constant DB_USER => q{};
 #  'http://www.fia.com/en-GB/mediacentre/f1_media/Pages/';
 #  'http://184.106.145.74/fia-f1/';
 #   http://184.106.145.74/fia-f1/f1-2012/hun-f1-2012-docs.htm
+
+# 2014 url
+#'http://184.106.145.74/f1-championship/f1-2014/f1-2014-01/2014_01_AUS_F1_P2_Timing_SecondPracticeSessionClassification_V01.pdf','0000001736'
 
 use constant VERSION => '20130430';
 
@@ -154,7 +157,7 @@ sub get_timing
     my $docs_dir    = get_docs_dir $season;
     my $race_dir    = catdir( $docs_dir, $race_tab->{id} );
     my $timing_dir  = TIMING_BASE . "f1-$season/f1-$season-$race_tab->{rd}/";
-    my $timing_page = FIA_BASE . "$season/$season-$page-" . FIA_SUFFIX;
+    my $timing_page = FIA_BASE . "$season/$page-" . FIA_SUFFIX;
     my $doc_links   = get_doc_links($timing_page);
     my @docs;
 
@@ -191,7 +194,8 @@ sub get_timing
 
     foreach (@docs) {
         my $doc      = $doc_links->{$_};
-        my $doc_name = $doc->{source};
+        my $doc_name = $season . '_' . $race_tab->{rd} . '_' .
+           uc($race_tab->{id}) . '_F1_' . $doc->{source};
         my $dest     = catfile( $race_dir, "$race_tab->{id}-$_.pdf" );
         my $src      = $timing_dir . $doc_name;
 
@@ -952,8 +956,9 @@ sub get_doc_links
         '.+/.+/([A-Z]{3} (Doc|DOC).*\.pdf)',
         '.+/.+/(Race.*\.pdf)',
         '.+/.+/((?:Preliminary )?Qualifying.*\.pdf)',
-        '.+/.+/(.*Practice.*\.pdf)',
+        #'.+/.+/(.*Practice.*\.pdf)',
         '.+/.+/(.*Provisional.*\.pdf)',
+        '.+/.+/\d{4}_\d\d_[A-z]{3}_F1_(.*Timing_.*\.pdf)',
     );
 
     my @regexes = map { qr/$_/ } @patterns;
@@ -970,18 +975,18 @@ sub get_doc_links
     }
 
     # clean up PDF names
-    my %practice = qw(P1 First P2 Second P3 Third);
+#   my %practice = qw(P1 First P2 Second P3 Third);
 
-    foreach ( keys %doc_seen ) {
-        my $k = $_;
-        if (s/^[A-Z]{3} (Doc|DOC) \d{1,2} //) {
-            s/^(P[1-3])/$practice{$1} Practice Session/;
-            s/(Qualifying) ([^Ses]{3})/$1 Session $2/;
-s/^(Preliminary) (Qualifying Session|Race) (Classification.pdf)/$2 $1 $3/;
-            s/ v\d(\.pdf)$/$1/;    # for 'v 2' documents
-        }
-        $doc_seen{$k} = $_;
-    }
+   foreach ( keys %doc_seen ) {
+       my $k = $_;
+#       if (s/^[A-Z]{3} (Doc|DOC) \d{1,2} //) {
+#           s/^(P[1-3])/$practice{$1} Practice Session/;
+#           s/(Qualifying) ([^Ses]{3})/$1 Session $2/;
+#s/^(Preliminary) (Qualifying Session|Race) (Classification.pdf)/$2 $1 $3/;
+#           s/ v\d(\.pdf)$/$1/;    # for 'v 2' documents
+#       }
+       $doc_seen{$k} = $_;
+   }
 
     # add source to doc_table;
     my $doc_tab = get_doc_table()->();
@@ -1074,7 +1079,7 @@ sub show_calendar
     if ( defined $year ) { $year = 1900 + (localtime)[5] unless $year }
 
     my $sql = <<'SQL';
-SELECT rd, date, gp, start, id
+SELECT rd, date, gp, start, id, fta
 FROM calendar
 WHERE season=?
 ORDER BY rd
@@ -1083,17 +1088,17 @@ SQL
     my $dbh = $db_session->();
     my $recs = $dbh->selectall_arrayref( $sql, { Slice => {} }, ($year) );
 
-    my ( $rd, $date, $gp, $start, $id );
+    my ( $rd, $date, $gp, $start, $id, $fta );
 
     format CALENDAR_TOP =
 
- rnd     date     grand prix        start  id
------------------------------------------------
+ rnd     date     grand prix        start  id   fta
+----------------------------------------------------
 .
 
     format CALENDAR =
-@||||@||||||||||||@<<<<<<<<<<<<<<<@||||||||@<<<
-$rd, $date,      $gp,             $start,  $id
+@||||@||||||||||||@<<<<<<<<<<<<<<<@||||||||@<<<<@<<<
+$rd, $date,      $gp,             $start,  $id, $fta
 .
 
     local $^ = 'CALENDAR_TOP';
@@ -1105,6 +1110,7 @@ $rd, $date,      $gp,             $start,  $id
         $gp    = $rec->{gp};
         $start = $rec->{start};
         $id    = $rec->{id};
+        $fta   = $rec->{fta};
         write;
     }
 
@@ -1275,34 +1281,34 @@ sub get_doc_table
 
                 # Practice
                 'session1-classification' => {
-                    link_name => 'First Practice Session Classification',
+                    link_name => 'P1_Timing_FirstPracticeSessionClassification_V01',
                     parser    => \&practice_session_classification,
                     table     => 'practice_1_classification',
                 },
                 'session1-times' => {
-                    link_name => 'First Practice Session Lap Times',
+                    link_name => 'P1_Timing_FirstPracticeSessionLapTimes_V01',
                     parser    => \&time_sheet,
                     table     => 'practice_1_lap_time',
                     fk_table  => 'practice_1_driver',
                 },
                 'session2-classification' => {
-                    link_name => 'Second Practice Session Classification',
+                    link_name => 'P2_Timing_SecondPracticeSessionClassification_V01',
                     parser    => \&practice_session_classification,
                     table     => 'practice_2_classification',
                 },
                 'session2-times' => {
-                    link_name => 'Second Practice Session Lap Times',
+                    link_name => 'P2_Timing_SecondPracticeSessionLapTimes_V01',
                     parser    => \&time_sheet,
                     table     => 'practice_2_lap_time',
                     fk_table  => 'practice_2_driver',
                 },
                 'session3-classification' => {
-                    link_name => 'Third Practice Session Classification',
+                    link_name => 'P3_Timing_ThirdPracticeSessionClassification_V01',
                     parser    => \&practice_session_classification,
                     table     => 'practice_3_classification',
                 },
                 'session3-times' => {
-                    link_name => 'Third Practice Session Lap Times',
+                    link_name => 'P3_Timing_ThirdPracticeSessionLapTimes_V01',
                     parser    => \&time_sheet,
                     table     => 'practice_3_lap_time',
                     fk_table  => 'practice_3_driver',
@@ -1310,84 +1316,84 @@ sub get_doc_table
 
                 # Qualifying
                 'qualifying-sectors' => {
-                    link_name => 'Qualifying Session Best Sector Times',
+                    link_name => 'Q0_Timing_QualifyingSessionBestSectorTimes_V01',
                     parser    => \&best_sector_times,
                     table     => 'qualifying_best_sector_time',
                 },
                 'qualifying-speeds' => {
-                    link_name => 'Qualifying Session Maximum Speeds',
+                    link_name => 'Q0_Timing_QualifyingSessionMaximumSpeeds_V01',
                     parser    => \&maximum_speeds,
                     table     => 'qualifying_maximum_speed',
                 },
                 'qualifying-times' => {
-                    link_name => 'Qualifying Session Lap Times',
+                    link_name => 'Q0_Timing_QualifyingSessionLapTimes_V01',
                     parser    => \&time_sheet,
                     table     => 'qualifying_lap_time',
                     fk_table  => 'qualifying_driver',
                 },
                 'qualifying-trap' => {
-                    link_name => 'Qualifying Session Speed Trap',
+                    link_name => 'Q0_Timing_QualifyingSessionSpeedTrap_V01',
                     parser    => \&speed_trap,
                     table     => 'qualifying_speed_trap',
                 },
                 'qualifying-classification' => {
                     link_name =>
-                      'Qualifying Session Preliminary Classification',
+                      'Q0_Timing_QualifyingSessionPreliminaryClassification_V01',
                     parser => \&qualifying_classification,
                     table  => 'qualifying_classification',
                 },
 
                 # Race
                 'race-analysis' => {
-                    link_name => 'Race Lap Analysis',
+                    link_name => 'R0_Timing_RaceLapAnalysis',
                     parser    => \&time_sheet,
                     table     => 'race_lap_analysis',
                     fk_table  => 'race_driver',
                 },
                 'race-grid' => {
-                    link_name => 'Provisional Starting Grid',
+                    link_name => 'R0_Timing_ProvisionalStartingGrid',
                     parser    => \&provisional_starting_grid,
                     table     => 'race_grid',
                 },
                 'race-history' => {
-                    link_name => 'Race History Chart',
+                    link_name => 'R0_Timing_RaceHistoryChart',
                     parser    => \&race_history_chart,
                     table     => 'race_history',
                 },
                 'race-laps' => {
-                    link_name => 'Race Fastest Laps',
+                    link_name => 'R0_Timing_RaceFastestLaps',
                     parser    => \&race_fastest_laps,
                     table     => 'race_fastest_lap',
                 },
                 'race-sectors' => {
-                    link_name => 'Race Best Sector Times',
+                    link_name => 'R0_Timing_RaceBestSectorTimes',
                     parser    => \&best_sector_times,
                     table     => 'race_best_sector_time',
                 },
                 'race-speeds' => {
-                    link_name => 'Race Maximum Speeds',
+                    link_name => 'R0_Timing_RaceMaximumSpeeds',
                     parser    => \&maximum_speeds,
                     table     => 'race_maximum_speed',
                 },
                 'race-summary' => {
-                    link_name => 'Race Pit Stop Summary',
+                    link_name => 'R0_Timing_RacePitStopSummary',
                     parser    => \&race_pit_stop_summary,
                     table     => 'race_pit_stop_summary',
                 },
                 'race-trap' => {
-                    link_name => 'Race Speed Trap',
+                    link_name => 'R0_Timing_RaceSpeedTrap',
                     parser    => \&speed_trap,
                     table     => 'race_speed_trap',
                 },
 
                 'race-classification' => {
-                    link_name => 'Race Preliminary Classification',
+                    link_name => 'R0_Timing_RacePreliminaryClassification',
                     parser    => \&race_classification,
                     table     => 'race_classification',
                 },
 
                 'race-lap-chart' => {
-                    link_name => 'Race Lap Chart',
+                    link_name => 'R0_Timing_RaceLapChart',
                     parser    => \&race_lap_chart,
                     table     => 'race_lap_chart',
                 }
