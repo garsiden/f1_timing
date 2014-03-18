@@ -13,10 +13,11 @@ use local::lib;
 
 use strict;
 use warnings;
-use 5.014;
+
+#use 5.014;
 
 # config constants
-const my $SEASON    => '2013';
+const my $SEASON    => '2014';
 const my $DOCS_DIR  => "$ENV{HOME}/Documents/F1";
 const my $GRAPH_DIR => "$DOCS_DIR/$SEASON/Graphs";
 const my $YAML      => 'f1graphs.yaml';
@@ -32,12 +33,18 @@ const my $TERM_TITLE_FONT => 'Verdana';
 const my $PNG_FONT        => 'Monaco';
 const my $PNG_TITLE_FONT  => "Vera";
 const my $DASHED          => 'dashed';        # solid|dashed
-const my %COLOURS         => (
-    1,  "#020138", 2,  "#485184", 3,  "#B80606", 4,  "#B80606", 5,  "#B7BACC",
-    6,  "#D0D7DF", 7,  "#F8A62D", 8,  "#F9D61A", 9,  "#72A5A6", 10, "#A7C8C9",
-    11, "#646564", 12, "#989898", 14, "#B2C61B", 15, "#D6E741", 16, "#3F62A6",
-    17, "#6E94C0", 18, "#640F6F", 19, "#A36FAA", 20, "#076214", 21, "#7EAE7B",
-    22, "#ED528A", 23, "#F5AAC4",
+const my %COLOURS => (
+    1,  "#020138", 3,  "#485184",    # Red Bull
+    14, "#B80606", 7,  "#B80606",    # Ferrari
+    22, "#B7BACC", 20, "#D0D7DF",    # Mclaren
+    8,  "#F8A62D", 13, "#F9D61A",    # Lotus
+    44, "#72A5A6", 6,  "#A7C8C9",    # Mercedes
+    21, "#646564", 99, "#989898",    # Sauber
+    27, "#B2C61B", 11, "#D6E741",    # Force India
+    19, "#3F62A6", 77, "#6E94C0",    # Williams
+    25, "#640F6F", 26, "#A36FAA",    # Torro Rosso
+    9,  "#076214", 10, "#7EAE7B",    # Caterham
+    4,  "#ED528A", 17, "#F5AAC4",    # Marussia
 );
 
 const my $VERSION => '20130525';
@@ -428,7 +435,6 @@ DRIVERS
       @{ $dbh->selectcol_arrayref( $sth, { Columns => [ 1, 2 ] }, ($race_id) )
       };
     $sth->finish;
-    print Dumper \%drivers;
 
     return \%drivers;
 }
@@ -543,10 +549,19 @@ sub get_yaml_specs
 
     return sub {
         unless ($spec_href) {
+            get_yaml_terms();
             $spec_href = LoadFile $YAML;
             mergekeys($spec_href);
         }
     };
+}
+
+sub get_yaml_terms
+{
+    my $term_href = LoadFile 'gnuplot_terms.yaml';
+    mergekeys($term_href);
+
+    #   print Dumper $term_href;
 }
 
 sub mergekeys
@@ -554,7 +569,8 @@ sub mergekeys
     return _mergekeys( $_[0], [] );
 }
 
-# http://www.perlmonks.org/?node_id=813443
+# YAML:XS doesn't merge keys - soltion from:-
+#     http://www.perlmonks.org/?node_id=813443
 sub _mergekeys
 {
     my $ref          = shift;
@@ -566,6 +582,7 @@ sub _mergekeys
     # parents, and hence by extension trying to inherit itself.
     if ( $reftype =~ /HASH|ARRAY/ and ( grep $_ == $ref, @$resolveStack ) > 0 )
     {
+
         # Halt and catch fire, or store the cyclic reference and not
         # process it further. Not complaining seems to be the behaviour of
         # Ruby's YAML parser, so let's go for that.
